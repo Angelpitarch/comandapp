@@ -1,0 +1,84 @@
+name: Pagina web
+
+# Compila la misma app (lib/main.dart) para navegador y la publica en GitHub Pages.
+# Se ejecuta sola cada vez que cambia el codigo en main, o a mano desde Actions.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - 'logo.png'
+      - 'icon.png'
+      - 'web_extra/**'
+      - '.github/workflows/web.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pagina-web
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generar carpeta web (preservando pubspec y lib)
+        run: |
+          cp pubspec.yaml /tmp/pubspec.yaml
+          cp -r lib /tmp/lib_backup
+          flutter create --platforms=web --project-name comandas_app --org com.puestocomida .
+          cp /tmp/pubspec.yaml pubspec.yaml
+          rm -rf lib && cp -r /tmp/lib_backup lib
+
+      - name: Nombre y colores de la pagina
+        run: |
+          sed -i 's#<title>comandas_app</title>#<title>Comandas</title>#' web/index.html
+          sed -i 's#content="comandas_app"#content="Comandas"#' web/index.html
+          sed -i 's#"name": "comandas_app"#"name": "Comandas"#; s#"short_name": "comandas_app"#"short_name": "Comandas"#' web/manifest.json
+          sed -i 's#"background_color": "[^"]*"#"background_color": "\#FFF8F3"#; s#"theme_color": "[^"]*"#"theme_color": "\#D84315"#' web/manifest.json
+          grep -n "<title>" web/index.html
+          cat web/manifest.json | head -12
+
+      - name: Librerias
+        run: flutter pub get
+
+      - name: Icono de la pagina
+        continue-on-error: true
+        run: dart run flutter_launcher_icons -f web_extra/iconos_web.yaml
+
+      - name: Compilar para navegador
+        run: flutter build web --release --base-href "/${{ github.event.repository.name }}/" --no-tree-shake-icons
+
+      - name: Preparar publicacion
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.publicar.outputs.page_url }}
+    steps:
+      - name: Publicar en GitHub Pages
+        id: publicar
+        uses: actions/deploy-pages@v4

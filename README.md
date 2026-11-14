@@ -69,6 +69,21 @@ codigo nativo, publicarlo exige un `release` nuevo (version mayor) e instalar el
 enviar como `patch`. Si el celular tiene las notificaciones de Comandas silenciadas o el canal
 "Comandas nuevas" en baja prioridad (Ajustes → Apps → Comandas → Notificaciones), no aparecera la ventana.
 
+## Pagina web
+
+La misma app (`lib/main.dart`) tambien funciona en el navegador, con la misma base de datos y en
+tiempo real con los celulares: lo que se anota en la web aparece en la app y al reves. Direccion:
+**https://angelpitarch.github.io/comandas-app/**
+
+- Se publica sola con el workflow **Pagina web** cada vez que cambia el codigo en `main`
+  (o a mano desde Actions → Pagina web → Run workflow). Los celulares, en cambio, siguen
+  necesitando su `patch` o `release`.
+- Activacion (una sola vez): Settings → Pages → Source: **GitHub Actions**.
+- En la web no hay avisos push ni sonido de comanda nueva; la pantalla de cocina si parpadea
+  y muestra el aviso. En computadora el PIN se puede escribir con el teclado.
+- La pagina es publica: cualquiera con el enlace ve la pantalla de acceso (nombres y correos del
+  personal). Sin PIN no puede entrar, y la seguridad por rol es la misma que en la app.
+
 ## Compilar el APK
 
 Desde GitHub → **Actions → Build APK → Run workflow**:

@@ -1,0 +1,10 @@
+# Iconos de la pagina web (se usa solo en el workflow "Pagina web").
+flutter_launcher_icons:
+  android: false
+  ios: false
+  image_path: "icon.png"
+  web:
+    generate: true
+    image_path: "icon.png"
+    background_color: "#D84315"
+    theme_color: "#D84315"

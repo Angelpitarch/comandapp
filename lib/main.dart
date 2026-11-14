@@ -1,6 +1,7 @@
 // Comandas - Puesto de Comida (Etapa 2A: nube en tiempo real con Supabase)
 // Un solo archivo. Datos compartidos entre dispositivos via Supabase.
 import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -21,10 +22,13 @@ const kFirebaseOptions = FirebaseOptions(
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  try {
-    await Firebase.initializeApp(options: kFirebaseOptions);
-  } catch (e) {
-    debugPrint('Firebase no disponible: $e');
+  // En la pagina web no hay avisos push (Firebase solo esta configurado para Android).
+  if (!kIsWeb) {
+    try {
+      await Firebase.initializeApp(options: kFirebaseOptions);
+    } catch (e) {
+      debugPrint('Firebase no disponible: $e');
+    }
   }
   try {
     await Supabase.initialize(url: kSupabaseUrl, anonKey: kSupabaseKey);
@@ -515,6 +519,7 @@ class Store extends ChangeNotifier {
   String? _pushToken;
   StreamSubscription<String>? _pushRefresh;
   Future<void> registerPush() async {
+    if (kIsWeb) return;
     try {
       final fm = FirebaseMessaging.instance;
       if (currentUserRole != 'cocina' && currentUserRole != 'admin') {
@@ -536,6 +541,7 @@ class Store extends ChangeNotifier {
     } catch (e) { debugPrint('registerPush: $e'); }
   }
   Future<void> unregisterPush() async {
+    if (kIsWeb) return;
     try {
       await _pushRefresh?.cancel();
       _pushRefresh = null;
@@ -1108,7 +1114,18 @@ class _LoginScreenState extends State<LoginScreen> {
                 label: Text((s['name'] ?? '') as String, style: const TextStyle(fontSize: 16))))),
       ]);
 
-  Widget _pinPad() => Column(mainAxisSize: MainAxisSize.min, children: [
+  // En computadora se puede escribir el PIN con el teclado: numeros, borrar y Enter.
+  KeyEventResult _tecla(FocusNode _, KeyEvent e) {
+    if (e is! KeyDownEvent) return KeyEventResult.ignored;
+    final ch = e.character;
+    if (ch != null && ch.length == 1 && '0123456789'.contains(ch)) { _tap(ch); return KeyEventResult.handled; }
+    if (e.logicalKey == LogicalKeyboardKey.backspace) { _back(); return KeyEventResult.handled; }
+    if ((e.logicalKey == LogicalKeyboardKey.enter || e.logicalKey == LogicalKeyboardKey.numpadEnter) &&
+        _pin.length >= 4 && _pin.length < 6 && !_checking) { _validate(); return KeyEventResult.handled; }
+    return KeyEventResult.ignored;
+  }
+
+  Widget _pinPad() => Focus(autofocus: true, onKeyEvent: _tecla, child: Column(mainAxisSize: MainAxisSize.min, children: [
         _logo(64),
         const SizedBox(height: 10),
         Text((_sel?['name'] ?? '') as String, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
@@ -1130,7 +1147,7 @@ class _LoginScreenState extends State<LoginScreen> {
         SizedBox(height: 40, child: (_pin.length >= 4 && _pin.length < 6 && !_checking)
             ? TextButton(onPressed: _validate, child: const Text('Entrar con PIN de 4 numeros'))
             : null),
-      ]);
+      ]));
 
   Widget _k(String label, {VoidCallback? action, Widget? child}) => Padding(padding: const EdgeInsets.all(6),
       child: SizedBox(width: 72, height: 62, child: FilledButton.tonal(onPressed: action ?? () => _tap(label),
