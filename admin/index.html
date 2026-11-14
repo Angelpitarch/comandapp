@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Comandas · Administración</title>
+  <meta name="description" content="Panel de administración del negocio: ventas, caja, menú, inventario, gastos, personal y base de datos.">
+  <meta name="theme-color" content="#D84315">
+  <link rel="icon" href="logo.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    // Tema elegido por este navegador (claro / oscuro / sistema). Se aplica antes de pintar.
+    try { const t = localStorage.getItem('comandas_tema'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+</head>
+<body>
+  <div id="app" aria-live="polite">
+    <div class="boot"><div class="spinner" aria-hidden="true"></div><span>Cargando panel…</span></div>
+  </div>
+  <div id="overlays"></div>
+  <div id="toasts" role="status" aria-live="polite"></div>
+  <noscript>Este panel necesita JavaScript activado.</noscript>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

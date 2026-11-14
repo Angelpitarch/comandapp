@@ -1,12 +1,15 @@
 name: Pagina web
 
-# Compila la misma app (lib/main.dart) para navegador y la publica en GitHub Pages.
+# Publica en GitHub Pages:
+#   /            -> panel de administracion (carpeta admin/, HTML y JavaScript sin compilar)
+#   /app/        -> la app Flutter (lib/main.dart) compilada para navegador (mesero y cocina)
 # Se ejecuta sola cada vez que cambia el codigo en main, o a mano desde Actions.
 on:
   push:
     branches: [main]
     paths:
       - 'lib/**'
+      - 'admin/**'
       - 'pubspec.yaml'
       - 'pubspec.lock'
       - 'logo.png'
@@ -64,13 +67,21 @@ jobs:
         continue-on-error: true
         run: dart run flutter_launcher_icons -f web_extra/iconos_web.yaml
 
-      - name: Compilar para navegador
-        run: flutter build web --release --base-href "/${{ github.event.repository.name }}/" --no-tree-shake-icons
+      - name: Compilar la app para navegador (queda en /app/)
+        run: flutter build web --release --base-href "/${{ github.event.repository.name }}/app/" --no-tree-shake-icons
+
+      - name: Juntar panel y app
+        run: |
+          rm -rf _site && mkdir -p _site
+          cp -r admin/. _site/
+          cp logo.png _site/logo.png
+          cp -r build/web _site/app
+          ls -la _site _site/app | head -40
 
       - name: Preparar publicacion
         uses: actions/upload-pages-artifact@v3
         with:
-          path: build/web
+          path: _site
 
   deploy:
     needs: build

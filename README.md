@@ -18,7 +18,7 @@ no solo en la pantalla: aunque alguien modifique la app, el servidor rechaza lo 
 ## Poner en marcha la base de datos (una sola vez)
 
 1. En Supabase abre **SQL Editor** y ejecuta, en orden, los archivos de `supabase/migrations/`:
-   `0001_schema.sql`, `0002_seguridad_por_rol.sql`, `0003_datos_iniciales.sql`, `0004_cocina_solo_estado.sql`, `0005_cierre_con_gastos.sql`, `0006_avisos_push.sql`, `0007_disparador_avisos.sql`, `0008_pin_6_digitos.sql` y `0009_pines_obvios.sql`.
+   `0001_schema.sql`, `0002_seguridad_por_rol.sql`, `0003_datos_iniciales.sql`, `0004_cocina_solo_estado.sql`, `0005_cierre_con_gastos.sql`, `0006_avisos_push.sql`, `0007_disparador_avisos.sql`, `0008_pin_6_digitos.sql`, `0009_pines_obvios.sql` y `0010_panel_web.sql`.
    Son seguros de repetir: no borran datos.
 2. Crea el primer administrador:
    - En **Authentication → Users → Add user** crea un usuario con su correo y la contraseña
@@ -29,7 +29,8 @@ no solo en la pantalla: aunque alguien modifique la app, el servidor rechaza lo 
      values ('Tu nombre', '', 'admin', true, 'tu-correo@ejemplo.com');
      ```
    El correo debe ser **exactamente el mismo** en Authentication y en `app_users`.
-3. Entra a la app con ese administrador y crea los demás usuarios desde **Usuarios**.
+3. Entra al panel web (o a la app) con ese administrador y crea los demás usuarios desde **Usuarios**.
+   El panel web les crea el acceso (correo + PIN) automáticamente.
 4. Ejecuta `supabase/tests/prueba_roles.sql` para comprobar los permisos de cada rol
    (no guarda nada; el resultado aparece dentro de un mensaje que empieza con `PRUEBA_TERMINADA`).
 
@@ -69,20 +70,23 @@ codigo nativo, publicarlo exige un `release` nuevo (version mayor) e instalar el
 enviar como `patch`. Si el celular tiene las notificaciones de Comandas silenciadas o el canal
 "Comandas nuevas" en baja prioridad (Ajustes → Apps → Comandas → Notificaciones), no aparecera la ventana.
 
-## Pagina web
+## Pagina web (panel de administracion)
 
-La misma app (`lib/main.dart`) tambien funciona en el navegador, con la misma base de datos y en
-tiempo real con los celulares: lo que se anota en la web aparece en la app y al reves. Direccion:
-**https://angelpitarch.github.io/comandas-app/**
+Direccion: **https://angelpitarch.github.io/comandas-app/**
 
-- Se publica sola con el workflow **Pagina web** cada vez que cambia el codigo en `main`
-  (o a mano desde Actions → Pagina web → Run workflow). Los celulares, en cambio, siguen
-  necesitando su `patch` o `release`.
+- **Panel de administracion** (raiz de la pagina, carpeta `admin/`): solo para administradores. Se entra con
+  correo y PIN. Tiene Resumen, Ventas, Reportes, Caja (con cierre de caja), Productos (receta, costo y margen),
+  Categorias, Inventario, Gastos, Anulaciones, Usuarios, Trabajadores, Configuracion y **Base de datos**
+  (explorar, filtrar, editar, insertar y borrar filas de las tablas de Postgres, respetando las reglas RLS).
+  Es HTML y JavaScript sin librerias ni compilacion; habla directo con Supabase.
+- **App para navegador** (`/app/`): la misma app Flutter, por ejemplo para usar la pantalla de cocina en un monitor.
+- Se publica sola con el workflow **Pagina web** cada vez que cambia `admin/` o `lib/` en `main`
+  (o a mano desde Actions → Pagina web → Run workflow). Los celulares siguen necesitando su `patch` o `release`.
 - Activacion (una sola vez): Settings → Pages → Source: **GitHub Actions**.
-- En la web no hay avisos push ni sonido de comanda nueva; la pantalla de cocina si parpadea
-  y muestra el aviso. En computadora el PIN se puede escribir con el teclado.
-- La pagina es publica: cualquiera con el enlace ve la pantalla de acceso (nombres y correos del
-  personal). Sin PIN no puede entrar, y la seguridad por rol es la misma que en la app.
+- Piezas en Supabase que usa el panel: `supabase/migrations/0010_panel_web.sql` (funcion `admin_esquema`, solo
+  admin) y la funcion en la nube `supabase/functions/admin-usuarios` (crear usuarios con su acceso real,
+  dar acceso a usuarios viejos y eliminarlos). Esa funcion comprueba que quien llama es un administrador activo.
+- En la web no hay avisos push. La sesion se guarda en el navegador: en una computadora compartida, cierra sesion al terminar.
 
 ## Compilar el APK
 
