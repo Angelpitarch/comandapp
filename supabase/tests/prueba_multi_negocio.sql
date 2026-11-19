@@ -139,6 +139,13 @@ begin
   select count(*) into n2 from public.personal_del_negocio(' ARepera-PRUEBA-zz ');
   if n <> 2 or n2 <> 2 then raise exception 'FALLO 27: personal de B = % / %', n, n2; end if; total := total + 1;
   if exists (select 1 from public.personal_del_negocio('arepera-prueba-zz') where email = admin_a) then raise exception 'FALLO 28: el personal de B incluye gente de A'; end if; total := total + 1;
+  -- el codigo se reconoce con mayusculas, espacios y tildes; uno vacio o de otro negocio no
+  select count(*) into n from public.personal_del_negocio('Areperá Prueba ZZ');
+  select count(*) into n2 from public.personal_del_negocio('areperapruebazz');
+  if n <> 2 or n2 <> 2 then raise exception 'FALLO 28b: codigo flexible = % / %', n, n2; end if;
+  if exists (select 1 from public.personal_del_negocio(' - ')) or exists (select 1 from public.personal_del_negocio('arepera-prueba')) then
+    raise exception 'FALLO 28c: un codigo vacio o incompleto encontro personal'; end if;
+  total := total + 1;
   if (select nombre from public.negocios where id = a) is null then raise exception 'FALLO 29'; end if; total := total + 1;
 
   -- negocio suspendido: no ve nada y su perfil lo dice

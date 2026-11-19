@@ -14,6 +14,9 @@ function render() {
   <div class="grid-2e">
     <section class="card"><div class="card-head"><div><h2>Negocio</h2><p>Se usa en la app y en los comprobantes</p></div></div>
       <form class="card-body stack" data-form="negocio" novalidate>
+        ${S.me?.negocio_codigo ? html`<div class="field"><span class="label">Código para entrar a la app</span>
+          <div class="input-group"><input class="input mono" value="${S.me.negocio_codigo}" readonly aria-label="Código del negocio"><button class="btn" type="button" data-act="copiar-codigo">${icon('copy', 16)}Copiar</button></div>
+          <span class="hint">Dáselo a tu personal: lo escriben una sola vez en cada teléfono, antes de elegir su nombre y poner su PIN. Se acepta con mayúsculas o espacios.</span></div>` : ''}
         <div class="field"><label for="c-name">Nombre del negocio</label><input class="input" id="c-name" name="business_name" value="${S.config.business_name || ''}"></div>
         <div class="field"><label for="c-rate">Tasa de cambio (Bs por 1 dólar)</label><div class="input-group"><input class="input" id="c-rate" name="rate" inputmode="decimal" value="${num(S.config.rate)}"><span class="addon">Bs</span></div>
           <span class="hint">Última actualización ${S.config.updated_at ? haceRato(S.config.updated_at) : '—'}. Cambia en todos los teléfonos al instante.</span></div>
@@ -42,6 +45,10 @@ function render() {
 function mount(root, ctx) {
   listen(root, ctx, {
     click(e) {
+      if (e.target.closest('[data-act="copiar-codigo"]')) {
+        navigator.clipboard?.writeText(S.me.negocio_codigo).then(() => toast('Código copiado'), () => toast('No se pudo copiar', 'bad'));
+        return;
+      }
       const b = e.target.closest('[data-seg="tema"] button');
       if (b) setTheme(b.dataset.v);
     },

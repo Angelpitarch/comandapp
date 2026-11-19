@@ -1157,7 +1157,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final s = await store.loadStaff(c);
     if (!mounted) return;
     if (s == null) { setState(() { _loading = false; _err = 'Sin conexion. Revisa internet e intenta de nuevo.'; }); return; }
-    if (s.isEmpty) { setState(() { _loading = false; _err = 'No encontramos un negocio activo con ese codigo.'; }); return; }
+    if (s.isEmpty) { setState(() { _loading = false; _err = 'No encontramos un negocio activo con ese codigo. Revisalo con el administrador.'; }); return; }
     try { await (await SharedPreferences.getInstance()).setString(kPrefCodigo, c); } catch (_) {}
     if (!mounted) return;
     setState(() { _codigo = c; _staff = s; _negocio = (s.first['negocio_nombre'] ?? '') as String; _loading = false; });
@@ -1256,7 +1256,7 @@ class _LoginScreenState extends State<LoginScreen> {
         const SizedBox(height: 40),
         const Text('Bienvenido', textAlign: TextAlign.center, style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
         const SizedBox(height: 6),
-        const Text('Escribe el codigo de tu negocio. Solo se pide la primera vez en este dispositivo.',
+        const Text('Escribe el codigo de tu negocio (te lo da el administrador). Solo se pide la primera vez en este dispositivo.',
             textAlign: TextAlign.center, style: TextStyle(color: Colors.white70, height: 1.35)),
         const SizedBox(height: 24),
         TextField(
@@ -2340,6 +2340,20 @@ class _AdminScreenState extends State<AdminScreen> {
         ]),
         _titulo('Ajustes del negocio'),
         Card(child: Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 16), child: Column(children: [
+          if (store.negocioCodigo.isNotEmpty) ...[
+            Row(children: [
+              const Icon(Icons.key_outlined, color: kPrimary, size: 20),
+              const SizedBox(width: 10),
+              const Expanded(child: Text('Codigo para entrar a la app', style: TextStyle(color: kMuted))),
+              SelectableText(store.negocioCodigo, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: kInk)),
+              IconButton(tooltip: 'Copiar codigo', icon: const Icon(Icons.copy_rounded, size: 18), onPressed: () {
+                Clipboard.setData(ClipboardData(text: store.negocioCodigo));
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Codigo copiado')));
+              }),
+            ]),
+            const Padding(padding: EdgeInsets.only(left: 30, bottom: 10), child: Align(alignment: Alignment.centerLeft,
+              child: Text('Daselo a tu personal: lo escriben una sola vez en cada telefono.', style: TextStyle(fontSize: 12, color: kMuted)))),
+          ],
           Row(children: [
             Expanded(child: TextField(controller: _bizName, onChanged: (_) => _bizTocado = true,
               decoration: const InputDecoration(labelText: 'Nombre del negocio', helperText: 'Sale en los comprobantes', isDense: true))),

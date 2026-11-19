@@ -37,7 +37,7 @@ no solo en la pantalla: aunque alguien modifique la app, el servidor rechaza lo 
 ## Poner en marcha la base de datos (una sola vez)
 
 1. En Supabase abre **SQL Editor** y ejecuta, en orden, los archivos de `supabase/migrations/`:
-   `0001_schema.sql`, `0002_seguridad_por_rol.sql`, `0003_datos_iniciales.sql`, `0004_cocina_solo_estado.sql`, `0005_cierre_con_gastos.sql`, `0006_avisos_push.sql`, `0007_disparador_avisos.sql`, `0008_pin_6_digitos.sql`, `0009_pines_obvios.sql`, `0010_panel_web.sql`, `0011_multi_negocio.sql` y `0012_cerrar_lista_publica.sql`.
+   `0001_schema.sql`, `0002_seguridad_por_rol.sql`, `0003_datos_iniciales.sql`, `0004_cocina_solo_estado.sql`, `0005_cierre_con_gastos.sql`, `0006_avisos_push.sql`, `0007_disparador_avisos.sql`, `0008_pin_6_digitos.sql`, `0009_pines_obvios.sql`, `0010_panel_web.sql`, `0011_multi_negocio.sql`, `0012_cerrar_lista_publica.sql` y `0013_codigo_flexible.sql`.
    Son seguros de repetir: no borran datos.
 2. Crea el primer administrador:
    - En **Authentication → Users → Add user** crea un usuario con su correo y la contraseña
@@ -118,7 +118,7 @@ psql -h /var/lib/postgresql/comandapp-test -p 54329 -U postgres -d comandapp_pru
 ```
 
 Ambas pruebas terminan con `PRUEBA_TERMINADA` (a proposito, para no dejar cambios). `prueba_multi_negocio.sql`
-tambien se puede correr en el SQL Editor de Supabase: crea un negocio de prueba, verifica 34 puntos de
+tambien se puede correr en el SQL Editor de Supabase: crea un negocio de prueba, verifica 35 puntos de
 aislamiento y lo deshace todo.
 
 ## Pagina web (panel de administracion)
