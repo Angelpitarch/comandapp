@@ -111,6 +111,14 @@ solo ve y cambia los datos de su negocio (regla restrictiva por tabla, ademas de
 - Respaldo previo a 0011 dentro de la base: esquema `respaldo_20261119` (sin acceso desde la API).
 - `0014_rendimiento.sql`: políticas más rápidas, `descontar_insumos(lista)` para descontar el inventario de una
   comanda en una sola llamada, `auth_id_de_correo` (solo para el servidor) y correos siempre en minúsculas.
+- `0015_operaciones_atomicas.sql`: `enviar_comanda` y `cobrar`. Cada una guarda todo junto o nada; reintentar con el
+  mismo id no duplica; una mesa ya cobrada no se puede cobrar otra vez; el total lo calcula el servidor con la cuenta.
+- `0016_entrada_segura.sql`: `personal_para_entrar` (sin correos), `entrar_con_pin` y `entrar_con_correo`
+  (PIN comprobado en el servidor; 5 fallos seguidos desde un equipo bloquean 5 min, luego 30 min y 2 h;
+  30 fallos en una hora bloquean 30 min en todas partes).
+- `0017_reportes.sql`: `reporte_periodo(desde, hasta)`, el reporte de semana o mes calculado con todas las ventas.
+- Pruebas locales: `prueba_multi_negocio.sql` (39), `prueba_operaciones.sql` (18), `prueba_entrada.sql` (13),
+  `prueba_reportes.sql` (8) y `prueba_roles.sql`.
 
 ### Probar migraciones en local
 
