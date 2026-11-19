@@ -1,0 +1,54 @@
+name: Revisar codigo
+
+# Revisa la app Flutter (flutter analyze) en cada cambio de lib/ o pubspec, en cualquier rama.
+# Los errores salen como anotaciones del workflow (visibles en GitHub y por la API).
+on:
+  push:
+    paths:
+      - 'lib/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - 'assets/**'
+      - '.github/workflows/revisar.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: revisar-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analizar:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Preparar proyecto
+        run: |
+          NAME=$(grep -m1 '^name:' pubspec.yaml | awk '{print $2}')
+          cp pubspec.yaml /tmp/pubspec.yaml && cp -r lib /tmp/lib_backup
+          flutter create --platforms=android,web --project-name "$NAME" --org com.comandapp . > /dev/null
+          cp /tmp/pubspec.yaml pubspec.yaml && rm -rf lib && cp -r /tmp/lib_backup lib
+          rm -rf test
+          flutter pub get
+
+      - name: Analizar
+        run: |
+          set +e
+          flutter analyze --no-fatal-infos --no-fatal-warnings --format=machine > maquina.txt 2>&1
+          E=$(grep -c '^ERROR|' maquina.txt); W=$(grep -c '^WARNING|' maquina.txt)
+          # hasta 10 errores como anotaciones individuales (limite de GitHub por paso)
+          grep '^ERROR|' maquina.txt | head -10 | while IFS='|' read -r sev typ cod file line col len msg; do
+            echo "::error file=${file#"$GITHUB_WORKSPACE"/},line=$line,col=$col::[$cod] $msg"
+          done
+          # resumen con todos los errores y avisos en una sola anotacion
+          RES=$( (grep -E '^(ERROR|WARNING)\|' maquina.txt | head -80 | awk -F'|' '{f=$4; sub(".*/lib/","lib/",f); printf "%s %s:%s [%s] %s%%0A", $1, f, $5, $3, $8}') )
+          echo "::notice title=Resumen (errores=$E, avisos=$W)::${RES:-sin problemas}"
+          [ "$E" = "0" ]
