@@ -1,8 +1,27 @@
-# Comandas – Puesto de comida
+<p align="center"><img src="assets/marca/logo-horizontal.png" alt="ComandApp" width="420"></p>
 
-App Flutter para administrar un puesto de comida: mesas, pedidos, cocina, cobro en USD y Bs,
-inventario con recetas, caja, empleados y gastos. Los datos viven en **Supabase** y se comparten
-en tiempo real entre dispositivos.
+# ComandApp
+
+Comandas, caja e inventario para restaurantes y negocios de comida: mesas, pedidos, cocina, cobro en
+USD y Bs, inventario con recetas, caja, empleados, gastos y reportes. Varios negocios comparten la misma
+plataforma, cada uno con sus datos aislados. Los datos viven en **Supabase** y se comparten en tiempo
+real entre los telefonos, la tableta de cocina y el panel web.
+
+## Entrar a la app
+
+1. **Codigo del negocio** (solo la primera vez en cada telefono; queda guardado). Ejemplo: `mi-restaurante`.
+2. **Quien eres**: aparece solo el personal activo de ese negocio.
+3. **PIN de 6 numeros** con el teclado en pantalla (o el teclado de la computadora en la version web).
+
+"Cambiar de negocio" borra el codigo guardado. Si el negocio esta suspendido o vencido, la app lo dice
+al entrar y no muestra datos.
+
+## Marca
+
+- Logo, icono y piezas en `assets/marca/` (simbolo, texto, logo horizontal, icono y favicon).
+- Colores: ambar `#FCAC0C`, negro `#111111`, verde `#549C1C`, rojo `#D43424` (sobre fondo claro, el
+  ambar de texto es `#A05F00` para que se lea bien).
+- Fuente: **Outfit** (licencia SIL Open Font License, `assets/fuentes/OFL.txt`).
 
 ## Roles
 
@@ -67,8 +86,8 @@ notificacion llega por un canal de importancia alta. La app lo crea al abrirse
 (`android_extra/MainActivity.kt.tpl`, que el workflow copia al proyecto Android) y la funcion
 `notify-comanda` envia cada aviso por el canal `comandas_nuevas` con sonido y vibracion. Como toca
 codigo nativo, publicarlo exige un `release` nuevo (version mayor) e instalar el APK; no se puede
-enviar como `patch`. Si el celular tiene las notificaciones de Comandas silenciadas o el canal
-"Comandas nuevas" en baja prioridad (Ajustes → Apps → Comandas → Notificaciones), no aparecera la ventana.
+enviar como `patch`. Si el celular tiene las notificaciones de ComandApp silenciadas o el canal
+"Comandas nuevas" en baja prioridad (Ajustes → Apps → ComandApp → Notificaciones), no aparecera la ventana.
 
 ## Varios negocios (0011)
 
@@ -104,7 +123,7 @@ aislamiento y lo deshace todo.
 
 ## Pagina web (panel de administracion)
 
-Direccion: **https://angelpitarch.github.io/comandas-app/**
+Direccion: **https://angelpitarch.github.io/comandapp/**
 
 - **Panel de administracion** (raiz de la pagina, carpeta `admin/`): solo para administradores. Se entra con
   correo y PIN. Tiene Resumen, Ventas, Reportes, Caja (con cierre de caja), Productos (receta, costo y margen),
@@ -148,5 +167,9 @@ lib/main.dart                         Toda la app (un solo archivo)
 supabase/migrations/                  Esquema, seguridad por rol, datos iniciales candado de cocina y gastos en el cierre
 supabase/tests/prueba_roles.sql       Prueba de permisos por rol
 .github/workflows/build-apk.yml       Compilación del APK y parches Shorebird
+.github/workflows/revisar.yml         Revisa el codigo (flutter analyze) y deja una vista previa web en la rama vista-previa
+.github/workflows/web.yml             Publica el panel y la app web en GitHub Pages
+admin/                                Panel web de administracion (HTML + JavaScript, sin compilar)
+assets/marca, assets/fuentes          Logo, icono y fuente de ComandApp
 .github/workflows/backup.yml          Respaldo diario de la base de datos
 ```

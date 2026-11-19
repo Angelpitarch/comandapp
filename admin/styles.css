@@ -1,7 +1,7 @@
 /* ===================== Tokens ===================== */
 :root {
   color-scheme: light;
-  --font: "Instrument Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font: "Outfit", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   --bg: #f5f4f2;
@@ -14,10 +14,11 @@
   --text: #1c1917;
   --text-2: #57514b;
   --muted: #847c74;
-  --accent: #c63d10;          /* naranja de la marca, ajustado para texto sobre blanco */
-  --accent-fill: #d84315;     /* naranja de la app (botones) */
-  --accent-soft: #fbe9e2;
-  --on-accent: #ffffff;
+  --accent: #9a5b00;          /* ambar de ComandApp oscurecido: texto y enlaces sobre blanco */
+  --accent-fill: #fcac0c;     /* ambar del logo: botones principales (texto negro encima) */
+  --accent-soft: #fff1cf;
+  --on-accent: #111111;
+  --ink: #111111;             /* negro del logo: barra lateral */
   --focus: #2a78d6;
 
   --good: #0a7d0a;  --good-soft: #e3f3e3;
@@ -29,7 +30,7 @@
   --grid: #ebe8e3;
   --axis: #c9c3bb;
 
-  --r-sm: 6px; --r: 8px; --r-lg: 12px;
+  --r-sm: 8px; --r: 10px; --r-lg: 14px;
   --shadow-pop: 0 10px 30px rgba(28, 25, 23, .16), 0 2px 6px rgba(28, 25, 23, .08);
   --sidebar-w: 248px;
 }
@@ -39,7 +40,7 @@
     --bg: #100e0d; --surface: #1c1917; --surface-2: #24201d; --surface-3: #2e2925; --sidebar: #151210;
     --border: #2f2a26; --border-strong: #433c36;
     --text: #f2eeea; --text-2: #c4bcb4; --muted: #8f877f;
-    --accent: #f37445; --accent-fill: #e0521f; --accent-soft: #3a2116; --on-accent: #ffffff; --focus: #6aa6ee;
+    --accent: #ffc24d; --accent-fill: #fcac0c; --accent-soft: #3a2a0a; --on-accent: #111111; --focus: #6aa6ee;
     --good: #3fbf5a; --good-soft: #15291a; --warn: #f0b03a; --warn-soft: #33270f; --bad: #f06a68; --bad-soft: #3a1918;
     --series-1: #3987e5; --series-2: #d95926; --grid: #2a2522; --axis: #3d3732;
     --shadow-pop: 0 14px 38px rgba(0, 0, 0, .55), 0 2px 8px rgba(0, 0, 0, .4);
@@ -50,7 +51,7 @@
   --bg: #100e0d; --surface: #1c1917; --surface-2: #24201d; --surface-3: #2e2925; --sidebar: #151210;
   --border: #2f2a26; --border-strong: #433c36;
   --text: #f2eeea; --text-2: #c4bcb4; --muted: #8f877f;
-  --accent: #f37445; --accent-fill: #e0521f; --accent-soft: #3a2116; --on-accent: #ffffff; --focus: #6aa6ee;
+  --accent: #ffc24d; --accent-fill: #fcac0c; --accent-soft: #3a2a0a; --on-accent: #111111; --focus: #6aa6ee;
   --good: #3fbf5a; --good-soft: #15291a; --warn: #f0b03a; --warn-soft: #33270f; --bad: #f06a68; --bad-soft: #3a1918;
   --series-1: #3987e5; --series-2: #d95926; --grid: #2a2522; --axis: #3d3732;
   --shadow-pop: 0 14px 38px rgba(0, 0, 0, .55), 0 2px 8px rgba(0, 0, 0, .4);
@@ -89,11 +90,12 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* ===================== Login ===================== */
 .login { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .login-side {
-  background: var(--sidebar); border-right: 1px solid var(--border); padding: 48px; display: flex; flex-direction: column; justify-content: space-between;
+  --text: #f4f1ec; --text-2: #c9c2b9; --muted: #8e877f; --accent: #fcac0c;
+  color: var(--text); background: radial-gradient(120% 80% at 0% 0%, #1d1608 0%, #0d0d0d 55%) #0d0d0d; padding: 48px; display: flex; flex-direction: column; justify-content: space-between;
 }
 .login-side .brand-big { display: flex; align-items: center; gap: 14px; }
-.login-side .brand-big img { width: 52px; height: 52px; border-radius: 12px; }
-.login-side h1 { font-size: 34px; letter-spacing: -0.02em; max-width: 14ch; margin-top: 56px; }
+.login-side .brand-big img { height: 56px; width: auto; }
+.login-side h1 { font-size: 38px; font-weight: 700; letter-spacing: -0.02em; max-width: 14ch; margin-top: 64px; }
 .login-side .lede { color: var(--text-2); max-width: 44ch; margin-top: 14px; font-size: 15px; }
 .login-side ul { list-style: none; padding: 0; margin: 28px 0 0; display: grid; gap: 10px; color: var(--text-2); }
 .login-side li { display: flex; gap: 10px; align-items: center; }
@@ -109,11 +111,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* ===================== Shell ===================== */
 .shell { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr); min-height: 100vh; }
 .sidebar {
-  position: sticky; top: 0; height: 100vh; overflow-y: auto; background: var(--sidebar); border-right: 1px solid var(--border);
+  --text: #f4f1ec; --text-2: #c9c2b9; --muted: #8a837b; --surface: #242424; --surface-2: #1c1c1c; --surface-3: #1e1e1e;
+  --border: #2c2c2c; --border-strong: #3b3b3b;
+  color: var(--text); position: sticky; top: 0; height: 100vh; overflow-y: auto; background: var(--ink, #111); border-right: 1px solid #000;
   display: flex; flex-direction: column; padding: 16px 12px;
 }
 .brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 18px; }
-.brand img { width: 34px; height: 34px; border-radius: 9px; flex: none; }
+.brand img { width: 40px; height: auto; flex: none; }
 .brand .b-name { font-weight: 600; font-size: 14px; line-height: 1.2; }
 .brand .b-sub { font-size: 12px; color: var(--muted); }
 .nav-group { margin-top: 14px; }
@@ -125,7 +129,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .nav a svg { flex: none; opacity: .85; }
 .nav a:hover { background: var(--surface-3); color: var(--text); }
-.nav a[aria-current="page"] { background: var(--surface); color: var(--text); box-shadow: inset 0 0 0 1px var(--border); }
+.nav a[aria-current="page"] { background: var(--surface); color: #fff; box-shadow: inset 0 0 0 1px var(--border); }
+.nav a[aria-current="page"] svg { color: var(--accent-fill); opacity: 1; }
 .nav a[aria-current="page"]::before { content: ""; position: absolute; left: -12px; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--accent-fill); }
 .nav a .count { margin-left: auto; font-size: 11.5px; padding: 0 7px; border-radius: 999px; background: var(--bad-soft); color: var(--bad); font-weight: 600; }
 .sidebar-foot { margin-top: auto; padding-top: 16px; display: grid; gap: 2px; }

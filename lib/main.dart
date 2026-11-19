@@ -350,11 +350,11 @@ class Store extends ChangeNotifier {
         connected = true; notifyListeners();
       }
     }, onError: _onErr);
-    sb.from('products').stream(primaryKey: ['id']).order('name').listen((rows) {
+    sb.from('products').stream(primaryKey: ['id']).order('name', ascending: true).listen((rows) {
       products = rows.map((r) => Product.fromRow(r)).toList();
       connected = true; notifyListeners();
     }, onError: _onErr);
-    sb.from('dining_tables').stream(primaryKey: ['number']).order('number').listen((rows) {
+    sb.from('dining_tables').stream(primaryKey: ['number']).order('number', ascending: true).listen((rows) {
       tables = rows.map((r) => TableModel.fromRow(r)).toList(); notifyListeners();
     }, onError: _onErr);
     sb.from('tickets').stream(primaryKey: ['id']).order('sent_at').listen((rows) {
@@ -376,13 +376,13 @@ class Store extends ChangeNotifier {
     sb.from('cancellations').stream(primaryKey: ['id']).order('at', ascending: false).listen((rows) {
       cancellations = rows.map((r) => Cancellation.fromRow(r)).toList(); notifyListeners();
     }, onError: _onErr);
-    sb.from('employees').stream(primaryKey: ['id']).order('name').listen((rows) {
+    sb.from('employees').stream(primaryKey: ['id']).order('name', ascending: true).listen((rows) {
       employees = rows.map((r) => Employee.fromRow(r)).toList(); notifyListeners();
     }, onError: _onErr);
     sb.from('gastos').stream(primaryKey: ['id']).order('at', ascending: false).listen((rows) {
       gastos = rows.map((r) => Gasto.fromRow(r)).toList(); notifyListeners();
     }, onError: _onErr);
-    sb.from('app_users').stream(primaryKey: ['id']).order('name').listen((rows) {
+    sb.from('app_users').stream(primaryKey: ['id']).order('name', ascending: true).listen((rows) {
       appUsers = rows.map((r) => AppUser.fromRow(r)).toList(); notifyListeners();
     }, onError: _onErr);
     sb.from('sales').stream(primaryKey: ['id']).order('at', ascending: false).listen((rows) {
@@ -391,10 +391,10 @@ class Store extends ChangeNotifier {
     sb.from('cash_closes').stream(primaryKey: ['id']).order('closed_at', ascending: false).listen((rows) {
       cashCloses = rows.map((r) => CashClose.fromRow(r)).toList(); notifyListeners();
     }, onError: _onErr);
-    sb.from('categories').stream(primaryKey: ['id']).order('position').listen((rows) {
+    sb.from('categories').stream(primaryKey: ['id']).order('position', ascending: true).listen((rows) {
       categories = rows.map((r) => CatDef.fromRow(r)).toList(); notifyListeners();
     }, onError: _onErr);
-    sb.from('ingredients').stream(primaryKey: ['id']).order('name').listen((rows) {
+    sb.from('ingredients').stream(primaryKey: ['id']).order('name', ascending: true).listen((rows) {
       ingredients = rows.map((r) => Ingredient.fromRow(r)).toList(); notifyListeners();
     }, onError: _onErr);
   }
@@ -2213,7 +2213,11 @@ class _AdminScreenState extends State<AdminScreen> {
   final _rate = TextEditingController();
   final _bizName = TextEditingController();
   final _rateFocus = FocusNode();
-  void _syncRate() { if (!_rateFocus.hasFocus) _rate.text = store.rate.toStringAsFixed(2); }
+  bool _bizTocado = false;
+  void _syncRate() {
+    if (!_rateFocus.hasFocus) _rate.text = store.rate.toStringAsFixed(2);
+    if (!_bizTocado && _bizName.text != store.businessName) _bizName.text = store.businessName;
+  }
   bool _motivDone = false;
   void _checkMotiv() {
     // Mensaje personal del fundador: solo en su propio negocio, nunca en los de clientes.
@@ -2337,13 +2341,14 @@ class _AdminScreenState extends State<AdminScreen> {
         _titulo('Ajustes del negocio'),
         Card(child: Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 16), child: Column(children: [
           Row(children: [
-            Expanded(child: TextField(controller: _bizName,
+            Expanded(child: TextField(controller: _bizName, onChanged: (_) => _bizTocado = true,
               decoration: const InputDecoration(labelText: 'Nombre del negocio', helperText: 'Sale en los comprobantes', isDense: true))),
             const SizedBox(width: 10),
             FilledButton(onPressed: () async {
               final n = _bizName.text.trim();
               if (n.isEmpty) return;
               await store.setBusinessName(n);
+              _bizTocado = false;
               if (!context.mounted) return;
               FocusScope.of(context).unfocus();
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nombre actualizado')));

@@ -40,7 +40,7 @@ function renderLogin(msg = '') {
   setHTML(app, html`<div class="login">
     <section class="login-side">
       <div>
-        <div class="brand-big"><img src="logo.png" alt="" onerror="this.style.display='none'"><div><b>Comandas</b><div class="muted small">Panel de administración</div></div></div>
+        <div class="brand-big"><img src="marca/logo-horizontal.png" alt="ComandApp" onerror="this.replaceWith(Object.assign(document.createElement('b'),{textContent:'ComandApp'}))"></div>
         <h1>Todo el negocio en una sola pantalla</h1>
         <p class="lede">Ventas, caja, menú, inventario, gastos y personal, con los mismos datos que usan los teléfonos en tiempo real.</p>
         <ul>
@@ -89,6 +89,7 @@ async function afterLogin(fail = (m) => renderLogin(m)) {
   let perfil;
   try { perfil = (await db.rpc('my_profile'))?.[0]; } catch (e) { await signOut(); fail(e.message); return false; }
   if (!perfil) { await signOut(); fail('Tu usuario no está activo o no tiene acceso. Pide ayuda a otro administrador.'); return false; }
+  if (perfil.negocio_activo === false) { await signOut(); fail('Tu negocio no está activo en este momento. Escríbenos para reactivarlo.'); return false; }
   if (perfil.role !== 'admin') { await signOut(); fail('Este panel es solo para administradores. Usa la app en el teléfono.'); return false; }
   S.me = { ...perfil, email: sessionEmail() };
   setHTML(app, html`<div class="boot"><div class="spinner" aria-hidden="true"></div><span>Cargando datos del negocio…</span></div>`);
@@ -132,7 +133,7 @@ function navHTML() {
 function renderShell() {
   setHTML(app, html`<div class="shell" id="shell">
     <aside class="sidebar" aria-label="Menú principal">
-      <div class="brand"><img src="logo.png" alt="" onerror="this.style.display='none'"><div><div class="b-name">${S.config.business_name || 'Comandas'}</div><div class="b-sub">Administración</div></div></div>
+      <div class="brand"><img src="marca/simbolo.png" alt="" onerror="this.style.display='none'"><div><div class="b-name">${S.config.business_name || S.me.negocio_nombre || 'Mi negocio'}</div><div class="b-sub">Panel · ComandApp</div></div></div>
       <div id="nav">${navHTML()}</div>
       <div class="sidebar-foot nav">
         <a href="${APP_URL}" target="_blank" rel="noopener">${icon('external')}<span>Abrir app (mesero y cocina)</span></a>
@@ -209,7 +210,7 @@ async function route() {
   current = v;
   markNav();
   $('#v-title').textContent = v.title;
-  document.title = `${v.title} · Comandas`;
+  document.title = `${v.title} · ComandApp`;
   const view = $('#view');
   if (changed) {
     cleanup?.(); cleanup = null;
