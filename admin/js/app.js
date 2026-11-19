@@ -53,15 +53,18 @@ function renderLogin(msg = '') {
     </section>
     <main class="login-main">
       <form class="login-card" id="login-form" novalidate>
-        <h2>Iniciar sesión</h2>
-        <p class="sub">Usa tu correo y tu PIN de la app.</p>
+        <p class="eyebrow">Panel de administración</p>
+        <h2>Bienvenido de nuevo</h2>
+        <p class="sub">Entra con tu correo y tu PIN de 6 números.</p>
         <div class="form-error ${msg ? '' : 'hidden'}" role="alert">${msg}</div>
         <div class="field"><label for="l-email">Correo</label>
           <input class="input" id="l-email" name="email" type="email" autocomplete="username" required value="${email}"></div>
         <div class="field"><label for="l-pin">PIN</label>
           <input class="input pin-input" id="l-pin" name="pin" type="password" inputmode="numeric" autocomplete="current-password" maxlength="6" required></div>
-        <button class="btn btn-primary btn-block" type="submit" style="height:40px;margin-top:6px">Entrar</button>
+        <button class="btn btn-primary btn-block" type="submit" style="height:44px;margin-top:6px">Entrar</button>
+        <div class="login-alt">${icon('external', 16)}<span>¿Eres mesero o cocina? <a href="${APP_URL}">Abre la app</a></span></div>
       </form>
+      <p class="login-foot">© ${new Date().getFullYear()} ComandApp · Comandas, caja e inventario</p>
     </main>
   </div>`);
   const form = $('#login-form');
@@ -137,6 +140,7 @@ function renderShell() {
       <div id="nav">${navHTML()}</div>
       <div class="sidebar-foot nav">
         <a href="${APP_URL}" target="_blank" rel="noopener">${icon('external')}<span>Abrir app (mesero y cocina)</span></a>
+        <div class="me"><span class="avatar">${(S.me.name || '?').trim().charAt(0).toUpperCase()}</span><div><b>${S.me.name}</b><span>Administrador</span></div></div>
       </div>
     </aside>
     <div class="main">

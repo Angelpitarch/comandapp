@@ -1589,8 +1589,8 @@ class TablesScreen extends StatelessWidget {
     return Padding(padding: const EdgeInsets.fromLTRB(20, 18, 20, 0), child: Row(children: [
       const Text('Salon', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: kInk)),
       const SizedBox(width: 24),
-      dato(statusColor('disponible'), '$libres libres'),
-      dato(statusColor('ocupada'), '${estados.length - libres} ocupadas'),
+      dato(statusColor('disponible'), libres == 1 ? '1 libre' : '$libres libres'),
+      dato(statusColor('ocupada'), estados.length - libres == 1 ? '1 ocupada' : '${estados.length - libres} ocupadas'),
       if (listos > 0) dato(statusColor('listo'), '$listos con pedido listo'),
     ]));
   }
@@ -1604,7 +1604,8 @@ class TablesScreen extends StatelessWidget {
             const Icon(Icons.takeout_dining_outlined, color: kPrimary),
             const SizedBox(width: 10),
             const Expanded(child: Text('Para llevar', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: kInk))),
-            Text('${store.takeaways.where((t) => t.status != 'pagada').length} abiertos', style: const TextStyle(color: kMuted, fontSize: 13)),
+            Builder(builder: (_) { final n = store.takeaways.where((t) => t.status != 'pagada').length;
+              return Text(n == 1 ? '1 abierto' : '$n abiertos', style: const TextStyle(color: kMuted, fontSize: 13)); }),
           ])),
           Padding(padding: const EdgeInsets.symmetric(horizontal: 18), child: FilledButton.icon(
             style: FilledButton.styleFrom(backgroundColor: kAmber, foregroundColor: kInk),
@@ -2366,9 +2367,9 @@ class _KitchenScreenState extends State<KitchenScreen> {
           Padding(padding: const EdgeInsets.fromLTRB(16, 16, 16, 4), child: Row(children: [
             const Text('Comandas en curso', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
             const SizedBox(width: 18),
-            dato(_c('nueva'), '${n('nueva')} nuevas'),
+            dato(_c('nueva'), n('nueva') == 1 ? '1 nueva' : '${n('nueva')} nuevas'),
             dato(_c('preparando'), '${n('preparando')} preparando'),
-            dato(_c('lista'), '${n('lista')} listas'),
+            dato(_c('lista'), n('lista') == 1 ? '1 lista' : '${n('lista')} listas'),
           ])),
           Expanded(child: grid),
         ]);
@@ -2678,9 +2679,6 @@ class _AdminScreenState extends State<AdminScreen> {
           const SizedBox(width: 12),
           Expanded(child: Text(store.businessName, maxLines: 1, overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700))),
-          Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(99)),
-            child: Text('1 USD = ${store.rate.toStringAsFixed(2)} Bs', style: const TextStyle(color: Colors.white70, fontSize: 12))),
         ]),
         const SizedBox(height: 18),
         const Text('Vendido hoy', style: TextStyle(color: Colors.white60, fontSize: 13)),
@@ -2690,6 +2688,7 @@ class _AdminScreenState extends State<AdminScreen> {
         Wrap(spacing: 22, runSpacing: 8, children: [
           _dato('Cuentas cobradas', '${store.todaySales.length}'),
           _dato('Mesas abiertas', '$abiertas'),
+          _dato('Tasa del dia', '${store.rate.toStringAsFixed(2)} Bs'),
           if (store.todayGastosUsd > 0) _dato('Ventas menos gastos', dualUsd(neto)),
         ]),
       ]),

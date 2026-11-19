@@ -114,7 +114,12 @@ function mount(root) {
 
 export default {
   path: 'resumen', title: 'Resumen', icon: 'home',
-  subtitle: () => { const lc = lastCloseAt(); return lc ? `Turno abierto desde el cierre del ${fecha(lc)} a las ${hora(lc)}` : 'Aún no hay cierres de caja: se muestra todo lo vendido'; },
+  subtitle: () => {
+    const d = new Date();
+    const hoy = `${['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'][d.getDay()]} ${d.getDate()} de ${MESES[d.getMonth()]}`;
+    const lc = lastCloseAt();
+    return `${hoy} · ` + (lc ? `Turno abierto desde el cierre del ${fecha(lc)} a las ${hora(lc)}` : 'Aún no hay cierres de caja: se muestra todo lo vendido');
+  },
   load, reload: load, render, mount,
 };
 export { num };
