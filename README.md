@@ -50,7 +50,10 @@ no solo en la pantalla: aunque alguien modifique la app, el servidor rechaza lo 
      ```
    El correo debe ser **exactamente el mismo** en Authentication y en `app_users`.
 3. Entra al panel web (o a la app) con ese administrador y crea los demás usuarios desde **Usuarios**.
-   El panel web les crea el acceso (correo + PIN) automáticamente.
+   Meseros y cocina **no necesitan correo**: se crean con nombre, rol y PIN, y el sistema les arma por dentro un
+   acceso interno que nadie ve (termina en `.local`, un dominio que no existe en internet). El administrador sí usa
+   un correo real, porque con él entra al panel web. Crear, dar acceso, cambiar el correo y eliminar usuarios pasa
+   por la función `admin-usuarios`, tanto desde el panel como desde la app.
 4. Ejecuta `supabase/tests/prueba_roles.sql` para comprobar los permisos de cada rol
    (no guarda nada; el resultado aparece dentro de un mensaje que empieza con `PRUEBA_TERMINADA`).
 

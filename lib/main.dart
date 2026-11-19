@@ -512,9 +512,6 @@ class Store extends ChangeNotifier {
     return gastos.where((g) => g.at.isAfter(lc)).toList();
   }
   double get todayGastosUsd => todayGastos.fold(0.0, (s, g) => s + g.amountUsd);
-  Future<void> addUser(AppUser u) async { try { await sb.from('app_users').insert(u.toRow()); } catch (x) { _onErr(x); } }
-  Future<void> updateUser(AppUser u) async { try { await sb.from('app_users').update(u.toRow()).eq('id', u.id); } catch (x) { _onErr(x); } }
-  Future<void> deleteUser(AppUser u) async { try { await sb.from('app_users').delete().eq('id', u.id); } catch (x) { _onErr(x); } }
   /// Rol real de quien acaba de iniciar sesion, leido de la base de datos (no de la lista publica).
   // ---- Avisos push (solo cocina y admin). Si algo falla, la app sigue igual. ----
   String? _pushToken;
@@ -599,6 +596,22 @@ class Store extends ChangeNotifier {
       await sb.auth.signInWithPassword(email: email, password: '$pin-comandas');
       return true;
     } catch (_) { return false; }
+  }
+  /// Crea, da acceso o elimina usuarios con su acceso real (funcion admin-usuarios). Devuelve null si todo bien o el mensaje de error.
+  Future<String?> usuarioNube(Map<String, dynamic> body) async {
+    const sinRed = 'No se pudo completar. Revisa tu conexion e intenta de nuevo.';
+    try {
+      final r = await sb.functions.invoke('admin-usuarios', body: body);
+      final d = r.data;
+      if (d is Map && d['error'] != null) return d['error'].toString();
+      return null;
+    } on FunctionException catch (e) {
+      final d = e.details;
+      if (d is Map && d['error'] != null) return d['error'].toString();
+      return sinRed;
+    } catch (_) {
+      return sinRed;
+    }
   }
   Future<void> saveUser({String? id, required String name, required String pin, required String role, required bool active}) async {
     try { await sb.rpc('save_user', params: <String, dynamic>{'p_id': id, 'p_name': name, 'p_pin': pin, 'p_role': role, 'p_active': active}); } catch (e) { _onErr(e); }
@@ -3965,13 +3978,17 @@ class AppUser {
   String pin;
   String role;
   bool active;
-  AppUser({required this.id, this.name = '', this.pin = '', this.role = 'mesero', this.active = true});
+  String email; // vacio = sin acceso; termina en .local = acceso interno (entra solo con PIN)
+  AppUser({required this.id, this.name = '', this.pin = '', this.role = 'mesero', this.active = true, this.email = ''});
+  bool get tieneAcceso => email.isNotEmpty;
+  bool get correoReal => email.isNotEmpty && !email.toLowerCase().endsWith('.local');
   factory AppUser.fromRow(Map<String, dynamic> r) => AppUser(
         id: r['id'] as String,
         name: (r['name'] ?? '') as String,
         pin: (r['pin'] ?? '') as String,
         role: (r['role'] ?? 'mesero') as String,
         active: (r['active'] ?? true) as bool,
+        email: (r['email'] ?? '') as String,
       );
   Map<String, dynamic> toRow() => <String, dynamic>{'name': name, 'pin': pin, 'role': role, 'active': active};
 }
@@ -4004,7 +4021,7 @@ class UsersScreen extends StatelessWidget {
                 child: Icon(u.role == 'admin' ? Icons.admin_panel_settings : (u.role == 'cocina' ? Icons.soup_kitchen : Icons.room_service),
                   color: u.active ? Colors.indigo : Colors.grey)),
               title: Text(u.name.isEmpty ? '(sin nombre)' : u.name),
-              subtitle: Text(roleLabel(u.role) + (u.active ? '' : '  ·  inactivo'), style: const TextStyle(fontSize: 12)),
+              subtitle: Text(roleLabel(u.role) + (u.active ? '' : '  ·  inactivo') + (u.tieneAcceso ? '' : '  ·  sin acceso'), style: const TextStyle(fontSize: 12)),
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => UserForm(existing: u))),
             )),
         ]);
@@ -4021,6 +4038,7 @@ class UserForm extends StatefulWidget {
 }
 class _UserFormState extends State<UserForm> {
   late TextEditingController _name, _pin;
+  final _correo = TextEditingController();
   late String _role;
   bool _active = true;
   bool _saving = false;
@@ -4034,18 +4052,36 @@ class _UserFormState extends State<UserForm> {
     _active = u?.active ?? true;
   }
   @override
-  void dispose() { _name.dispose(); _pin.dispose(); super.dispose(); }
+  void dispose() { _name.dispose(); _pin.dispose(); _correo.dispose(); super.dispose(); }
+  void _aviso(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+  // El correo solo se pide al crear un administrador (o al darle acceso), para que pueda entrar al panel web.
+  bool get _pideCorreo => _role == 'admin' && !(widget.existing?.tieneAcceso ?? false);
   Future<void> _save() async {
     if (_saving) return;
     final name = _name.text.trim();
     final pin = _pin.text.trim();
-    if (name.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Escribe el nombre'))); return; }
-    final editing = widget.existing != null;
-    if ((!editing || pin.isNotEmpty) && (pin.length != 6 || int.tryParse(pin) == null)) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('El PIN debe ser de 6 numeros'))); return; }
-    if (pin.isNotEmpty && pinDebil(pin)) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text(kMsgPinFacil))); return; }
+    final correo = _correo.text.trim().toLowerCase();
+    final u = widget.existing;
+    if (name.isEmpty) { _aviso('Escribe el nombre'); return; }
+    final darAcceso = u == null || !u.tieneAcceso;
+    if ((darAcceso || pin.isNotEmpty) && (pin.length != 6 || int.tryParse(pin) == null)) { _aviso('El PIN debe ser de 6 numeros'); return; }
+    if (pin.isNotEmpty && pinDebil(pin)) { _aviso(kMsgPinFacil); return; }
+    if (_pideCorreo && !RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(correo)) { _aviso('El administrador necesita un correo valido para entrar al panel web'); return; }
     setState(() => _saving = true);
-    await store.saveUser(id: widget.existing?.id, name: name, pin: pin, role: _role, active: _active);
+    String? err;
+    if (u == null) {
+      err = await store.usuarioNube(<String, dynamic>{'accion': 'crear', 'nombre': name, 'correo': _pideCorreo ? correo : '',
+          'pin': pin, 'rol': _role, 'activo': _active});
+    } else if (!u.tieneAcceso) {
+      await store.saveUser(id: u.id, name: name, pin: '', role: _role, active: _active);
+      err = await store.usuarioNube(<String, dynamic>{'accion': 'acceso', 'id': u.id, 'correo': _pideCorreo ? correo : '', 'pin': pin});
+    } else {
+      await store.saveUser(id: u.id, name: name, pin: pin, role: _role, active: _active);
+    }
     if (!mounted) return;
+    setState(() => _saving = false);
+    if (err != null) { _aviso(err); return; }
+    _aviso(u == null ? '$name ya puede entrar con su PIN' : 'Cambios guardados');
     Navigator.pop(context);
   }
   @override
@@ -4059,15 +4095,24 @@ class _UserFormState extends State<UserForm> {
               content: Text('Eliminar a "' + widget.existing!.name + '"?'),
               actions: [
                 TextButton(onPressed: () => Navigator.pop(dctx), child: const Text('Cancelar')),
-                FilledButton(onPressed: () async { Navigator.pop(dctx); await store.deleteUser(widget.existing!); if (mounted) Navigator.pop(context); }, child: const Text('Eliminar')),
+                FilledButton(onPressed: () async {
+                  Navigator.pop(dctx);
+                  final err = await store.usuarioNube(<String, dynamic>{'accion': 'eliminar', 'id': widget.existing!.id});
+                  if (!mounted) return;
+                  if (err != null) { _aviso(err); return; }
+                  Navigator.pop(context);
+                }, child: const Text('Eliminar')),
               ]));
           }),
       ]),
       body: ListView(padding: const EdgeInsets.all(16), children: [
-        TextField(controller: _name, decoration: const InputDecoration(labelText: 'Nombre')),
+        TextField(controller: _name, decoration: const InputDecoration(labelText: 'Nombre', helperText: 'Asi aparecera en la pantalla de entrada')),
         const SizedBox(height: 12),
+        if (widget.existing != null && !widget.existing!.tieneAcceso)
+          const Padding(padding: EdgeInsets.only(bottom: 12), child: Text('Este usuario todavia no tiene acceso. Ponle un PIN para que pueda entrar.',
+            style: TextStyle(color: kBad, fontWeight: FontWeight.w600))),
         TextField(controller: _pin, keyboardType: TextInputType.number, maxLength: 6,
-          decoration: InputDecoration(labelText: widget.existing == null ? 'PIN (6 numeros)' : 'PIN nuevo (vacio = no cambiar)', counterText: '')),
+          decoration: InputDecoration(labelText: (widget.existing?.tieneAcceso ?? false) ? 'PIN nuevo (vacio = no cambiar)' : 'PIN (6 numeros)', counterText: '')),
         const SizedBox(height: 12),
         DropdownButtonFormField<String>(value: _role,
           decoration: const InputDecoration(labelText: 'Rol'),
@@ -4077,6 +4122,11 @@ class _UserFormState extends State<UserForm> {
             DropdownMenuItem(value: 'cocina', child: Text('Cocina')),
           ],
           onChanged: (v) => setState(() => _role = v ?? 'mesero')),
+        if (_pideCorreo) ...[
+          const SizedBox(height: 12),
+          TextField(controller: _correo, keyboardType: TextInputType.emailAddress, autocorrect: false,
+            decoration: const InputDecoration(labelText: 'Correo del administrador', helperText: 'Para entrar al panel web. Meseros y cocina no lo necesitan.')),
+        ],
         SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Activo'), value: _active, onChanged: (v) => setState(() => _active = v)),
         const SizedBox(height: 16),
         SizedBox(width: double.infinity, height: 50, child: FilledButton.icon(

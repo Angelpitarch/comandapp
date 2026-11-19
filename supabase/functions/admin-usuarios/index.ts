@@ -1,10 +1,14 @@
 // Gestion de usuarios con acceso real (correo + PIN) desde el panel web.
 // Solo la puede usar un administrador activo con su sesion abierta.
 // Acciones (POST JSON):
-//   { "accion": "crear",    "nombre", "correo", "pin", "rol", "activo" }
-//   { "accion": "acceso",   "id", "correo", "pin" }     -> da acceso a un usuario que no lo tiene
+//   { "accion": "crear",    "nombre", "correo"?, "pin", "rol", "activo" }
+//   { "accion": "acceso",   "id", "correo"?, "pin" }    -> da acceso a un usuario que no lo tiene
+//   { "accion": "correo",   "id", "correo" }            -> cambia el correo de acceso (por ejemplo, para el panel)
 //   { "accion": "eliminar", "id" }                       -> borra el usuario y su acceso
 // La clave de acceso es "<PIN>-comandas", igual que en la app.
+// Meseros y cocina NO necesitan correo: si no se escribe, se crea un acceso interno que nadie ve
+// (termina en .local, un dominio que no existe en internet, asi que nadie puede pedir recuperar la clave).
+// El administrador si necesita un correo real para entrar al panel web.
 // Todo ocurre dentro del negocio del administrador que llama (ComandApp es para varios negocios).
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
@@ -18,6 +22,8 @@ const json = (body: unknown, status = 200) =>
 
 const ROLES = ['admin', 'mesero', 'cocina'];
 const CORREO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const INTERNO = /\.local$/i;
+const correoInterno = () => `p-${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}@personal.comandapp.local`;
 
 // Misma regla que private.pin_debil en la base de datos.
 function pinDebil(p: string): boolean {
@@ -87,12 +93,15 @@ Deno.serve(async (req) => {
 
   if (accion === 'crear') {
     const nombre = String(b.nombre ?? '').trim();
-    const correo = String(b.correo ?? '').trim().toLowerCase();
+    let correo = String(b.correo ?? '').trim().toLowerCase();
     const rol = String(b.rol ?? '');
     const activo = b.activo !== false;
     if (!nombre) return json({ error: 'Escribe el nombre' }, 400);
-    if (!CORREO.test(correo)) return json({ error: 'Escribe un correo valido' }, 400);
     if (!ROLES.includes(rol)) return json({ error: 'Rol invalido' }, 400);
+    if (!correo) {
+      if (rol === 'admin') return json({ error: 'El administrador necesita un correo para entrar al panel web' }, 400);
+      correo = correoInterno();
+    } else if (!CORREO.test(correo)) return json({ error: 'Escribe un correo valido' }, 400);
     const malPin = revisarPin(b.pin);
     if (malPin) return json({ error: malPin }, 400);
     if (!(await correoLibre(correo))) return json({ error: 'Ya hay un usuario con ese correo' }, 400);
@@ -108,19 +117,45 @@ Deno.serve(async (req) => {
   }
 
   if (accion === 'acceso') {
-    const correo = String(b.correo ?? '').trim().toLowerCase();
-    if (!CORREO.test(correo)) return json({ error: 'Escribe un correo valido' }, 400);
+    let correo = String(b.correo ?? '').trim().toLowerCase();
     const malPin = revisarPin(b.pin);
     if (malPin) return json({ error: malPin }, 400);
-    const { data: u } = await admin.from('app_users').select('id,email').eq('id', b.id).eq('negocio_id', miNegocio).maybeSingle();
+    const { data: u } = await admin.from('app_users').select('id,email,role').eq('id', b.id).eq('negocio_id', miNegocio).maybeSingle();
     if (!u) return json({ error: 'Usuario no encontrado' }, 404);
-    if (u.email) return json({ error: 'Este usuario ya tiene correo de acceso' }, 400);
+    if (u.email) return json({ error: 'Este usuario ya tiene acceso' }, 400);
+    if (!correo) {
+      if (u.role === 'admin') return json({ error: 'El administrador necesita un correo para entrar al panel web' }, 400);
+      correo = correoInterno();
+    } else if (!CORREO.test(correo)) return json({ error: 'Escribe un correo valido' }, 400);
     if (!(await correoLibre(correo, u.id))) return json({ error: 'Ya hay un usuario con ese correo' }, 400);
     const acceso = await crearAcceso(correo, b.pin);
     if (acceso.error) return json({ error: acceso.error }, 400);
     const { error } = await admin.from('app_users').update({ email: correo }).eq('id', u.id);
     if (error) {
       await admin.auth.admin.deleteUser(acceso.id!);
+      return json({ error: 'No se pudo guardar el correo: ' + error.message }, 500);
+    }
+    return json({ ok: true, id: u.id });
+  }
+
+  if (accion === 'correo') {
+    const correo = String(b.correo ?? '').trim().toLowerCase();
+    if (!CORREO.test(correo) || INTERNO.test(correo)) return json({ error: 'Escribe un correo real (por ejemplo, de Gmail)' }, 400);
+    const { data: u } = await admin.from('app_users').select('id,email').eq('id', b.id).eq('negocio_id', miNegocio).maybeSingle();
+    if (!u) return json({ error: 'Usuario no encontrado' }, 404);
+    if (!u.email) return json({ error: 'Este usuario todavia no tiene acceso: dale acceso primero' }, 400);
+    if ((u.email ?? '').toLowerCase() === correo) return json({ ok: true, id: u.id });
+    if (!(await correoLibre(correo, u.id))) return json({ error: 'Ya hay un usuario con ese correo' }, 400);
+    const authId = await idDeAcceso(u.email.toLowerCase());
+    if (!authId) return json({ error: 'No se encontro el acceso de este usuario' }, 404);
+    const { error: eAuth } = await admin.auth.admin.updateUserById(authId, { email: correo, email_confirm: true });
+    if (eAuth) {
+      const yaExiste = /already|registered|exists/i.test(eAuth.message);
+      return json({ error: yaExiste ? 'Ese correo ya tiene un acceso creado en Supabase' : 'No se pudo cambiar el correo: ' + eAuth.message }, 400);
+    }
+    const { error } = await admin.from('app_users').update({ email: correo }).eq('id', u.id).eq('negocio_id', miNegocio);
+    if (error) {
+      await admin.auth.admin.updateUserById(authId, { email: u.email, email_confirm: true });
       return json({ error: 'No se pudo guardar el correo: ' + error.message }, 500);
     }
     return json({ ok: true, id: u.id });
