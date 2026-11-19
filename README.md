@@ -186,7 +186,14 @@ como archivo de Actions durante 30 días. Como el repositorio es público, la co
 ## Estructura
 
 ```
-lib/main.dart                         Toda la app (un solo archivo)
+lib/main.dart                         Arranque, llaves publicas de Supabase y Firebase, y la lista de partes
+lib/src/store.dart                    Estado de la app conectado a Supabase (comandas, cobros, inventario)
+lib/src/modelos.dart                  Modelos de datos
+lib/src/tema.dart                     Tema visual, barra con la marca y pantalla raiz
+lib/src/entrada.dart                  Entrada (codigo, personal, PIN) y cambiar PIN
+lib/src/mesas.dart, pedido.dart, cobro.dart, cocina.dart           Operacion del salon y la cocina
+lib/src/admin.dart, productos.dart, inventario.dart, personal.dart,
+        gastos.dart, historial.dart, reportes.dart, formato.dart  Administracion
 supabase/migrations/                  Esquema, seguridad por rol, datos iniciales candado de cocina y gastos en el cierre
 supabase/tests/prueba_roles.sql       Prueba de permisos por rol
 .github/workflows/build-apk.yml       Compilación del APK y parches Shorebird
