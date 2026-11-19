@@ -52,3 +52,16 @@ jobs:
           RES=$( (grep -E '^(ERROR|WARNING)\|' maquina.txt | head -80 | awk -F'|' '{f=$4; sub(".*/lib/","lib/",f); printf "%s %s:%s [%s] %s%%0A", $1, f, $5, $3, $8}') )
           echo "::notice title=Resumen (errores=$E, avisos=$W)::${RES:-sin problemas}"
           [ "$E" = "0" ]
+
+      # Version web de prueba para ver las pantallas (se borra sola a los 3 dias)
+      - name: Compilar version web de prueba
+        if: success()
+        run: flutter build web --release --base-href / --no-tree-shake-icons
+
+      - name: Guardar version web de prueba
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-web-prueba
+          path: build/web
+          retention-days: 3
