@@ -12,6 +12,9 @@ on:
       - '.github/workflows/revisar.yml'
   workflow_dispatch:
 
+permissions:
+  contents: write   # solo para guardar la vista previa en su rama
+
 concurrency:
   group: revisar-${{ github.ref }}
   cancel-in-progress: true
@@ -53,15 +56,18 @@ jobs:
           echo "::notice title=Resumen (errores=$E, avisos=$W)::${RES:-sin problemas}"
           [ "$E" = "0" ]
 
-      # Version web de prueba para ver las pantallas (se borra sola a los 3 dias)
+      # Version web de prueba para ver las pantallas: se guarda en la rama "vista-previa"
+      # (solo desde ramas de trabajo, nunca desde main). Usa recursos locales, sin CDN.
       - name: Compilar version web de prueba
-        if: success()
-        run: flutter build web --release --base-href / --no-tree-shake-icons
+        if: success() && github.ref != 'refs/heads/main'
+        run: flutter build web --release --base-href / --no-tree-shake-icons --no-web-resources-cdn
 
-      - name: Guardar version web de prueba
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-web-prueba
-          path: build/web
-          retention-days: 3
+      - name: Publicar version web de prueba
+        if: success() && github.ref != 'refs/heads/main'
+        run: |
+          cd build/web
+          git init -q -b vista-previa
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A && git commit -q -m "Vista previa de ${GITHUB_SHA::7}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" vista-previa
