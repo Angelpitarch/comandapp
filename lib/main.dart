@@ -1,6 +1,7 @@
 // ComandApp - comandas, caja e inventario para restaurantes (nube en tiempo real con Supabase)
 // Un solo archivo. Datos compartidos entre dispositivos via Supabase.
 import 'dart:async';
+import 'dart:math' show Random;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -182,7 +183,7 @@ class TableModel {
         ((r['capacity'] ?? 2) as num).toInt(),
         status: (r['status'] ?? 'disponible') as String,
         waiter: r['waiter'] as String?,
-        openedAt: r['opened_at'] != null ? DateTime.tryParse(r['opened_at'] as String) : null,
+        openedAt: r['opened_at'] != null ? DateTime.tryParse(r['opened_at'] as String)?.toLocal() : null,
       );
 }
 
@@ -339,64 +340,97 @@ class Store extends ChangeNotifier {
   bool _inited = false;
   List<AppUser> appUsers = [];
 
+  final List<StreamSubscription<List<Map<String, dynamic>>>> _subs = [];
+  bool ticketsListos = false; // ya llego la primera carga de comandas (para no avisar de las viejas)
+  Future<void>? saliendo;      // cierre de sesion en curso: la entrada espera a que termine
+
+  // Cada rol escucha solo lo que usa: cocina 2 tablas, mesero 8, administrador todas.
+  // Las tablas que crecen todos los dias (comandas, ventas, gastos...) se limitan a lo mas reciente.
   void init() {
     if (_inited) return;
     _inited = true;
-    sb.from('app_config').stream(primaryKey: ['id']).listen((rows) {
-      if (rows.isNotEmpty) {
-        rate = ((rows.first['rate'] ?? 36.5) as num).toDouble();
-        businessName = (rows.first['business_name'] ?? 'Mi negocio') as String;
-        motivShown = (rows.first['motiv_shown'] ?? true) as bool;
-        connected = true; notifyListeners();
-      }
-    }, onError: _onErr);
-    sb.from('products').stream(primaryKey: ['id']).order('name', ascending: true).listen((rows) {
-      products = rows.map((r) => Product.fromRow(r)).toList();
-      connected = true; notifyListeners();
-    }, onError: _onErr);
-    sb.from('dining_tables').stream(primaryKey: ['number']).order('number', ascending: true).listen((rows) {
-      tables = rows.map((r) => TableModel.fromRow(r)).toList(); notifyListeners();
-    }, onError: _onErr);
-    sb.from('tickets').stream(primaryKey: ['id']).order('sent_at').listen((rows) {
-      tickets = rows.map((r) => Ticket.fromRow(r)).toList(); notifyListeners();
-    }, onError: _onErr);
-    sb.from('account_items').stream(primaryKey: ['id']).listen((rows) {
-      final m = <int, List<AccLine>>{};
-      final tm = <String, List<AccLine>>{};
-      for (final r in rows) {
-        final a = AccLine.fromRow(r);
-        if (a.table != null) { (m[a.table!] ??= []).add(a); }
-        else if (a.takeawayId != null) { (tm[a.takeawayId!] ??= []).add(a); }
-      }
-      accounts = m; takeawayAccounts = tm; notifyListeners();
-    }, onError: _onErr);
-    sb.from('takeaways').stream(primaryKey: ['id']).order('created_at').listen((rows) {
-      takeaways = rows.map((r) => Takeaway.fromRow(r)).toList(); notifyListeners();
-    }, onError: _onErr);
-    sb.from('cancellations').stream(primaryKey: ['id']).order('at', ascending: false).listen((rows) {
-      cancellations = rows.map((r) => Cancellation.fromRow(r)).toList(); notifyListeners();
-    }, onError: _onErr);
-    sb.from('employees').stream(primaryKey: ['id']).order('name', ascending: true).listen((rows) {
-      employees = rows.map((r) => Employee.fromRow(r)).toList(); notifyListeners();
-    }, onError: _onErr);
-    sb.from('gastos').stream(primaryKey: ['id']).order('at', ascending: false).listen((rows) {
-      gastos = rows.map((r) => Gasto.fromRow(r)).toList(); notifyListeners();
-    }, onError: _onErr);
-    sb.from('app_users').stream(primaryKey: ['id']).order('name', ascending: true).listen((rows) {
-      appUsers = rows.map((r) => AppUser.fromRow(r)).toList(); notifyListeners();
-    }, onError: _onErr);
-    sb.from('sales').stream(primaryKey: ['id']).order('at', ascending: false).listen((rows) {
-      sales = rows.map((r) => Sale.fromRow(r)).toList(); notifyListeners();
-    }, onError: _onErr);
-    sb.from('cash_closes').stream(primaryKey: ['id']).order('closed_at', ascending: false).listen((rows) {
-      cashCloses = rows.map((r) => CashClose.fromRow(r)).toList(); notifyListeners();
-    }, onError: _onErr);
-    sb.from('categories').stream(primaryKey: ['id']).order('position', ascending: true).listen((rows) {
-      categories = rows.map((r) => CatDef.fromRow(r)).toList(); notifyListeners();
-    }, onError: _onErr);
-    sb.from('ingredients').stream(primaryKey: ['id']).order('name', ascending: true).listen((rows) {
-      ingredients = rows.map((r) => Ingredient.fromRow(r)).toList(); notifyListeners();
-    }, onError: _onErr);
+    final admin = currentUserRole == 'admin';
+    final salon = admin || currentUserRole == 'mesero';
+    void escuchar(Stream<List<Map<String, dynamic>>> st, void Function(List<Map<String, dynamic>>) alLlegar) {
+      _subs.add(st.listen((rows) { alLlegar(rows); notifyListeners(); }, onError: _onErr));
+    }
+    escuchar(sb.from('app_config').stream(primaryKey: ['id']), (rows) {
+      if (rows.isEmpty) return;
+      rate = ((rows.first['rate'] ?? 36.5) as num).toDouble();
+      businessName = (rows.first['business_name'] ?? 'Mi negocio') as String;
+      motivShown = (rows.first['motiv_shown'] ?? true) as bool;
+      connected = true;
+    });
+    escuchar(sb.from('tickets').stream(primaryKey: ['id']).order('sent_at').limit(300), (rows) {
+      tickets = rows.map((r) => Ticket.fromRow(r)).toList();
+      ticketsListos = true;
+    });
+    if (salon) {
+      escuchar(sb.from('products').stream(primaryKey: ['id']).order('name', ascending: true), (rows) {
+        products = rows.map((r) => Product.fromRow(r)).toList(); connected = true;
+      });
+      escuchar(sb.from('dining_tables').stream(primaryKey: ['number']).order('number', ascending: true), (rows) {
+        tables = rows.map((r) => TableModel.fromRow(r)).toList();
+      });
+      escuchar(sb.from('account_items').stream(primaryKey: ['id']), (rows) {
+        final m = <int, List<AccLine>>{};
+        final tm = <String, List<AccLine>>{};
+        for (final r in rows) {
+          final a = AccLine.fromRow(r);
+          if (a.table != null) { (m[a.table!] ??= []).add(a); }
+          else if (a.takeawayId != null) { (tm[a.takeawayId!] ??= []).add(a); }
+        }
+        accounts = m; takeawayAccounts = tm;
+      });
+      escuchar(sb.from('takeaways').stream(primaryKey: ['id']).order('created_at'), (rows) {
+        takeaways = rows.map((r) => Takeaway.fromRow(r)).toList();
+      });
+      escuchar(sb.from('categories').stream(primaryKey: ['id']).order('position', ascending: true), (rows) {
+        categories = rows.map((r) => CatDef.fromRow(r)).toList();
+      });
+      escuchar(sb.from('ingredients').stream(primaryKey: ['id']).order('name', ascending: true), (rows) {
+        ingredients = rows.map((r) => Ingredient.fromRow(r)).toList();
+      });
+    }
+    if (admin) {
+      escuchar(sb.from('cancellations').stream(primaryKey: ['id']).order('at', ascending: false).limit(300), (rows) {
+        cancellations = rows.map((r) => Cancellation.fromRow(r)).toList();
+      });
+      escuchar(sb.from('employees').stream(primaryKey: ['id']).order('name', ascending: true), (rows) {
+        employees = rows.map((r) => Employee.fromRow(r)).toList();
+      });
+      escuchar(sb.from('gastos').stream(primaryKey: ['id']).order('at', ascending: false).limit(500), (rows) {
+        gastos = rows.map((r) => Gasto.fromRow(r)).toList();
+      });
+      escuchar(sb.from('app_users').stream(primaryKey: ['id']).order('name', ascending: true), (rows) {
+        appUsers = rows.map((r) => AppUser.fromRow(r)).toList();
+      });
+      // Las 1000 ventas mas recientes (el turno y los ultimos dias). Los reportes largos estan en el panel web.
+      escuchar(sb.from('sales').stream(primaryKey: ['id']).order('at', ascending: false).limit(1000), (rows) {
+        sales = rows.map((r) => Sale.fromRow(r)).toList();
+      });
+      escuchar(sb.from('cash_closes').stream(primaryKey: ['id']).order('closed_at', ascending: false).limit(400), (rows) {
+        cashCloses = rows.map((r) => CashClose.fromRow(r)).toList();
+      });
+    }
+  }
+
+  /// Al cerrar sesion: deja de escuchar y borra de la memoria los datos del usuario anterior,
+  /// para que quien entre despues (en el mismo telefono) cargue solo lo suyo y con sus permisos.
+  Future<void> reset() async {
+    final subs = List.of(_subs);
+    _subs.clear();
+    for (final x in subs) { try { await x.cancel(); } catch (_) {} }
+    try { await sb.removeAllChannels(); } catch (_) {}
+    _inited = false;
+    ticketsListos = false;
+    connected = false;
+    error = null;
+    products = []; tables = []; tickets = []; accounts = {}; takeaways = []; cancellations = [];
+    employees = []; gastos = []; takeawayAccounts = {}; sales = []; cashCloses = []; categories = [];
+    ingredients = []; appUsers = [];
+    _carts.clear();
+    notifyListeners();
   }
 
   void _onErr(Object e) { error = 'Error de conexion: $e'; notifyListeners(); }
@@ -679,20 +713,32 @@ class Store extends ChangeNotifier {
     }
     return c;
   }
-  Future<void> _consume(Product p, double q, {Set<String> skip = const <String>{}}) async {
+  // Suma cuanto se gasta de cada insumo (recetas y combos). "skip" = ingredientes que el cliente pidio quitar.
+  void _acumularInsumos(Product p, double q, Map<String, double> acc, {Set<String> skip = const <String>{}, int nivel = 0}) {
+    if (nivel > 6) return;
     if (p.comboItems.isNotEmpty) {
       for (final c in p.comboItems) {
         final cp = productById(c.productId);
-        if (cp != null) await _consume(cp, c.qty * q);
+        if (cp != null) _acumularInsumos(cp, c.qty * q, acc, nivel: nivel + 1);
       }
       return;
     }
-    if (p.recipe.isNotEmpty) {
-      for (final r in p.recipe) {
-        if (skip.contains(r.ingredientId)) continue;
-        await sb.rpc('deduct_ingredient', params: <String, dynamic>{'i_id': r.ingredientId, 'i_qty': r.qty * q});
+    for (final r in p.recipe) {
+      if (skip.contains(r.ingredientId)) continue;
+      acc[r.ingredientId] = (acc[r.ingredientId] ?? 0) + r.qty * q;
+    }
+  }
+  // Descuenta todo en UNA llamada (antes era una por ingrediente y el mesero esperaba varios segundos).
+  Future<void> _descontarInsumos(Map<String, double> acc) async {
+    final items = [for (final e in acc.entries) if (e.value > 0) <String, dynamic>{'id': e.key, 'qty': e.value}];
+    if (items.isEmpty) return;
+    try {
+      await sb.rpc('descontar_insumos', params: <String, dynamic>{'p_items': items});
+    } on PostgrestException catch (e) {
+      if (e.code != 'PGRST202') rethrow; // base de datos sin la funcion nueva: se descuenta uno por uno
+      for (final it in items) {
+        await sb.rpc('deduct_ingredient', params: <String, dynamic>{'i_id': it['id'], 'i_qty': it['qty']});
       }
-      return;
     }
   }
 
@@ -735,7 +781,7 @@ class Store extends ChangeNotifier {
   }
 
   Future<void> setBusinessName(String n) async {
-    try { await sb.from('app_config').update(<String, dynamic>{'business_name': n, 'updated_at': DateTime.now().toIso8601String()}).eq('id', 1); }
+    try { await sb.from('app_config').update(<String, dynamic>{'business_name': n, 'updated_at': DateTime.now().toUtc().toIso8601String()}).eq('id', 1); }
     catch (e) { _onErr(e); }
   }
   Future<void> markMotivShown() async {
@@ -743,7 +789,7 @@ class Store extends ChangeNotifier {
     try { await sb.from('app_config').update(<String, dynamic>{'motiv_shown': true}).eq('id', 1); } catch (e) { _onErr(e); }
   }
   Future<void> setRate(double r) async {
-    try { await sb.from('app_config').update(<String, dynamic>{'rate': r, 'updated_at': DateTime.now().toIso8601String()}).eq('id', 1); }
+    try { await sb.from('app_config').update(<String, dynamic>{'rate': r, 'updated_at': DateTime.now().toUtc().toIso8601String()}).eq('id', 1); }
     catch (e) { _onErr(e); }
   }
   Future<void> toggleProduct(Product p) async {
@@ -764,7 +810,7 @@ class Store extends ChangeNotifier {
       final t = tables.firstWhere((e) => e.number == n);
       if (t.status == 'disponible') {
         await sb.from('dining_tables').update(<String, dynamic>{
-          'status': 'ocupada', 'waiter': currentUser, 'opened_at': DateTime.now().toIso8601String(),
+          'status': 'ocupada', 'waiter': currentUser, 'opened_at': DateTime.now().toUtc().toIso8601String(),
         }).eq('number', n);
       }
     } catch (e) { _onErr(e); }
@@ -815,19 +861,19 @@ class Store extends ChangeNotifier {
       }).select();
       final ticketId = tRes.isNotEmpty ? tRes.first['id'] as String : null;
       final number = tRes.isNotEmpty ? ((tRes.first['number'] ?? 0) as num).toInt() : 0;
-      if (table != null || takeawayId != null) {
-        final accRows = [for (final it in items) <String, dynamic>{
-          'table_number': table, 'takeaway_id': takeawayId, 'ticket_id': ticketId, 'product_name': it.p.name, 'qty': it.qty, 'size': it.size?.name,
-          'extras': exNames(it), 'quita': quitaNames(it), 'note': it.note, 'unit_usd': toUsd(it.unit(), it.p.cur),
-        }];
-        await sb.from('account_items').insert(accRows);
-      }
-      if (table != null) {
-        await sb.from('dining_tables').update(<String, dynamic>{'status': 'ocupada', 'waiter': currentUser, 'opened_at': DateTime.now().toIso8601String()}).eq('number', table);
-      }
-      for (final it in items) {
-        await _consume(it.p, it.qty.toDouble(), skip: it.quitaIng);
-      }
+      final insumos = <String, double>{};
+      for (final it in items) { _acumularInsumos(it.p, it.qty.toDouble(), insumos, skip: it.quitaIng); }
+      // La cuenta, la mesa y el inventario no dependen entre si: se guardan al mismo tiempo.
+      await Future.wait<dynamic>([
+        if (table != null || takeawayId != null)
+          sb.from('account_items').insert([for (final it in items) <String, dynamic>{
+            'table_number': table, 'takeaway_id': takeawayId, 'ticket_id': ticketId, 'product_name': it.p.name, 'qty': it.qty, 'size': it.size?.name,
+            'extras': exNames(it), 'quita': quitaNames(it), 'note': it.note, 'unit_usd': toUsd(it.unit(), it.p.cur),
+          }]),
+        if (table != null)
+          sb.from('dining_tables').update(<String, dynamic>{'status': 'ocupada', 'waiter': currentUser, 'opened_at': DateTime.now().toUtc().toIso8601String()}).eq('number', table),
+        _descontarInsumos(insumos),
+      ]);
       if (!keepCart) items.clear();
       notifyListeners();
       return number;
@@ -862,7 +908,8 @@ class Store extends ChangeNotifier {
     try { await sb.from('tickets').update(<String, dynamic>{'reprinted': true}).eq('id', t.id); } catch (e) { _onErr(e); }
   }
 
-  Future<bool> pay(List<Payment> payments, {int? table, String? takeawayId, String? cartKey}) async {
+  /// [ventaId] lo crea la pantalla de cobro una sola vez: si la red falla y se reintenta, la venta no se duplica.
+  Future<bool> pay(List<Payment> payments, {int? table, String? takeawayId, String? cartKey, String? ventaId}) async {
     try {
       List<Map<String, dynamic>> saleLines;
       double total;
@@ -885,10 +932,15 @@ class Store extends ChangeNotifier {
         saleLines = [for (final it in items) <String, dynamic>{'name': it.p.name, 'qty': it.qty, 'lineUsd': lineUsd(it)}];
         total = items.fold(0.0, (s, it) => s + lineUsd(it));
       }
-      await sb.from('sales').insert(<String, dynamic>{
-        'table_number': table, 'customer': customer, 'total_usd': total, 'lines': saleLines,
-        'payments': [for (final p in payments) <String, dynamic>{'method': p.method, 'amountUsd': p.amountUsd, 'reference': p.reference}],
-      });
+      try {
+        await sb.from('sales').insert(<String, dynamic>{
+          if (ventaId != null) 'id': ventaId,
+          'table_number': table, 'customer': customer, 'total_usd': total, 'lines': saleLines,
+          'payments': [for (final p in payments) <String, dynamic>{'method': p.method, 'amountUsd': p.amountUsd, 'reference': p.reference}],
+        });
+      } on PostgrestException catch (e) {
+        if (e.code != '23505') rethrow; // ya se habia guardado en el intento anterior
+      }
       if (table != null) {
         // Conservamos la cuenta y fijamos el estado desde la pantalla de cobro.
       } else if (takeawayId != null) {
@@ -1025,6 +1077,16 @@ ThemeData temaComandApp() {
 }
 
 // Pantalla ancha (computadora o tableta horizontal): se usa un diseno propio, no el del telefono.
+// Identificador unico (UUID v4) creado en el telefono.
+String nuevoId() {
+  final r = Random.secure();
+  final b = List<int>.generate(16, (_) => r.nextInt(256));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  final h = b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+  return '${h.substring(0, 8)}-${h.substring(8, 12)}-${h.substring(12, 16)}-${h.substring(16, 20)}-${h.substring(20)}';
+}
+
 bool esAncho(BuildContext context) => MediaQuery.sizeOf(context).width >= 900;
 
 // Barra superior con la marca. En pantalla ancha muestra el logo, el negocio y quien tiene la sesion.
@@ -1068,8 +1130,11 @@ Widget _homeForRole(String role) =>
 void _logout(BuildContext context) {
   store.currentUser = '';
   store.currentUserRole = '';
-  // primero se quita el aviso de este celular (necesita la sesion abierta), despues se cierra la sesion
-  store.unregisterPush().whenComplete(() => sb.auth.signOut());
+  // primero se quita el aviso de este celular (necesita la sesion abierta), despues se limpia la memoria y se cierra la sesion
+  store.saliendo = store.unregisterPush().whenComplete(() async {
+    await store.reset();
+    try { await sb.auth.signOut(); } catch (_) {}
+  });
   Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (r) => false);
 }
 
@@ -1232,6 +1297,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _validate() async {
     setState(() => _checking = true);
+    await store.saliendo; // si alguien acaba de salir en este telefono, se espera a que termine
     final email = (_sel?['email'] ?? '') as String;
     final ok = email.isNotEmpty && await store.signInStaff(email, _pin);
     final me = ok ? await store.myProfile() : null;
@@ -2037,6 +2103,7 @@ class PaymentScreen extends StatefulWidget {
   State<PaymentScreen> createState() => _PaymentScreenState();
 }
 class _PaymentScreenState extends State<PaymentScreen> {
+  final String _ventaId = nuevoId(); // mismo id en cada reintento: la venta nunca se guarda dos veces
   int _mode = 0;
   int _persons = 2;
   bool _paying = false;
@@ -2077,7 +2144,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     if (payments.isEmpty) return;
     setState(() => _paying = true);
     final nav = Navigator.of(context);
-    final ok = await store.pay(payments, table: widget.table, takeawayId: widget.takeawayId, cartKey: widget.cartKey);
+    final ok = await store.pay(payments, table: widget.table, takeawayId: widget.takeawayId, cartKey: widget.cartKey, ventaId: _ventaId);
     if (!mounted) return;
     setState(() => _paying = false);
     if (!ok) {
@@ -2206,9 +2273,6 @@ class ReceiptScreen extends StatelessWidget {
             Text('       ${ves(total * store.rate)}', style: mono.copyWith(fontWeight: FontWeight.bold)),
             Text('Tasa: ${ves(store.rate)} / \$', style: mono.copyWith(fontSize: 11)),
             const SizedBox(height: 14),
-            Center(child: FilledButton.icon(
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Impresion por Bluetooth se agrega en la Entrega 4'))),
-              icon: const Icon(Icons.print), label: const Text('Imprimir'))),
           ]),
         )));
       }),
@@ -2224,15 +2288,18 @@ class KitchenScreen extends StatefulWidget {
 }
 class _KitchenScreenState extends State<KitchenScreen> {
   Timer? _timer;
-  int _lastCount = -1;
+  // Solo los cronometros se redibujan cada segundo (antes se redibujaba toda la pantalla).
+  final _ahora = ValueNotifier<DateTime>(DateTime.now());
+  final Set<String> _vistas = {}; // comandas ya mostradas: se avisa solo por las que llegan despues
+  bool _cargada = false;          // la primera carga no suena (son comandas que ya estaban)
   bool _flash = false;
   @override
   void initState() {
     super.initState();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) { if (mounted) setState(() {}); });
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) => _ahora.value = DateTime.now());
   }
   @override
-  void dispose() { _timer?.cancel(); super.dispose(); }
+  void dispose() { _timer?.cancel(); _ahora.dispose(); super.dispose(); }
   void _alertNueva() {
     HapticFeedback.heavyImpact();
     var count = 0;
@@ -2249,8 +2316,8 @@ class _KitchenScreenState extends State<KitchenScreen> {
         Text('NUEVA COMANDA', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: kInk))]),
       backgroundColor: kAmber, duration: Duration(seconds: 3)));
   }
-  String _elapsed(DateTime d) {
-    final s = DateTime.now().difference(d);
+  String _elapsed(DateTime d, DateTime ahora) {
+    final s = ahora.difference(d);
     return '${(s.inMinutes).toString().padLeft(2, '0')}:${(s.inSeconds % 60).toString().padLeft(2, '0')}';
   }
   Color _c(String s) => switch (s) { 'nueva' => const Color(0xFF2F6FDB), 'preparando' => kAmber, 'lista' => kOk, _ => Colors.grey };
@@ -2294,10 +2361,13 @@ class _KitchenScreenState extends State<KitchenScreen> {
       ]),
       body: AnimatedBuilder(animation: store, builder: (context, _) {
         final list = store.tickets.where((t) => t.status != 'entregada' && t.status != 'anulada').toList();
-        if (list.length > _lastCount && _lastCount != -1) {
-          WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _alertNueva(); });
+        if (store.ticketsListos) {
+          if (_cargada && list.any((t) => t.status == 'nueva' && !_vistas.contains(t.id))) {
+            WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _alertNueva(); });
+          }
+          _vistas.addAll(list.map((t) => t.id));
+          _cargada = true;
         }
-        _lastCount = list.length;
         if (list.isEmpty) {
           return const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
             Icon(Icons.check_circle_outline, color: Colors.white24, size: 64),
@@ -2325,7 +2395,8 @@ class _KitchenScreenState extends State<KitchenScreen> {
                   const SizedBox(width: 8),
                   Text(_estado(t.status), style: TextStyle(color: fg.withOpacity(0.8), fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.6)),
                   const Spacer(), Icon(Icons.timer_outlined, color: fg, size: 16), const SizedBox(width: 4),
-                  Text(_elapsed(t.sentAt), style: TextStyle(color: fg, fontWeight: FontWeight.w700, fontFeatures: const [FontFeature.tabularFigures()])),
+                  ValueListenableBuilder<DateTime>(valueListenable: _ahora, builder: (_, ahora, __) => Text(_elapsed(t.sentAt, ahora),
+                      style: TextStyle(color: fg, fontWeight: FontWeight.w700, fontFeatures: const [FontFeature.tabularFigures()]))),
                 ])),
                 Padding(padding: const EdgeInsets.fromLTRB(14, 10, 14, 2), child: Row(children: [
                   Expanded(child: Text(t.table != null ? 'MESA ${t.table}' : (t.takeawayName != null ? 'LLEVAR - ${t.takeawayName}' : 'PARA LLEVAR'),
@@ -2351,7 +2422,7 @@ class _KitchenScreenState extends State<KitchenScreen> {
                 Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
                   IconButton(tooltip: 'Reimprimir', icon: const Icon(Icons.print), onPressed: () {
                     store.reprint(t);
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('REIMPRESION registrada (impresora real en Entrega 4)')));
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Marcada como reimpresa')));
                   }),
                   if (store.currentUserRole == 'admin')
                     IconButton(tooltip: 'Anular', icon: const Icon(Icons.cancel, color: Colors.red), onPressed: () => _anular(t)),
@@ -3303,9 +3374,6 @@ class DaySummaryScreen extends StatelessWidget {
             Text('Cuentas cobradas: ${sales.length}', style: mono),
             Text('Tasa: ${ves(store.rate)} / \$', style: mono.copyWith(fontSize: 11)),
             const SizedBox(height: 14),
-            Center(child: FilledButton.icon(
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Impresion por Bluetooth se agrega en la Entrega 4'))),
-              icon: const Icon(Icons.print), label: const Text('Imprimir'))),
           ]),
         )));
       }),

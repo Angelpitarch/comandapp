@@ -8,7 +8,7 @@ declare
   mesero_a text := (select email from public.app_users where role = 'mesero' and active order by created_at limit 1);
   cocina_a text := (select email from public.app_users where role = 'cocina' and active order by created_at limit 1);
   antes jsonb;
-  id_mesero_b uuid; id_harina_b uuid;
+  id_mesero_b uuid; id_harina_b uuid; id_ing_a uuid; stock_a numeric;
   despues jsonb;
 begin
   a := (select negocio_id from public.app_users where email = admin_a);
@@ -26,6 +26,7 @@ begin
   insert into public.sales (negocio_id, total_usd) values (b, 99);
   id_mesero_b := (select id from public.app_users where email = 'mesero-b@prueba.test');
   id_harina_b := (select id from public.ingredients where name = 'Harina B' and negocio_id = b limit 1);
+  insert into public.ingredients (negocio_id, name, stock) values (a, 'Insumo prueba A', 50) returning id into id_ing_a;
 
   -- ================= como ADMIN del negocio A =================
   perform set_config('request.jwt.claims', json_build_object('email', admin_a, 'role', 'authenticated')::text, true);
@@ -63,6 +64,11 @@ begin
 
   -- funciones: no deben tocar B
   perform public.deduct_ingredient(id_harina_b, 5);
+  perform public.descontar_insumos(jsonb_build_array(jsonb_build_object('id', id_harina_b, 'qty', 5)));
+  begin
+    perform public.auth_id_de_correo(admin_a);
+    raise exception 'FALLO 9b: un administrador pudo buscar accesos de Supabase';
+  exception when insufficient_privilege then null; end; total := total + 1;
   begin
     perform public.save_user(id_mesero_b, 'Hackeado', '', 'admin', true);
     raise exception 'FALLO 9: A edito un usuario de B';
@@ -93,6 +99,12 @@ begin
   update public.dining_tables set status = 'ocupada' where number = 1;
   get diagnostics n = row_count;
   if n <> 1 then raise exception 'FALLO 13: la mesa 1 de A cambio % filas', n; end if; total := total + 1;
+  -- descuento de insumos en una sola llamada (dos lineas del mismo insumo se suman)
+  perform public.descontar_insumos(jsonb_build_array(jsonb_build_object('id', id_ing_a, 'qty', 2), jsonb_build_object('id', id_ing_a, 'qty', 1.5)));
+  begin
+    perform public.descontar_insumos(jsonb_build_array(jsonb_build_object('id', id_ing_a, 'qty', -3)));
+    raise exception 'FALLO 13b: se acepto una cantidad negativa';
+  exception when invalid_parameter_value then null; end; total := total + 1;
   update public.negocios set nombre = 'X';
   get diagnostics n = row_count;
   if n <> 0 then raise exception 'FALLO 14: un mesero edito el negocio'; end if; total := total + 1;
@@ -120,6 +132,10 @@ begin
   if n <> 0 then raise exception 'FALLO 20: cocina A ve comandas de B'; end if; total := total + 1;
   perform public.register_device('token-de-prueba-cocina-a-0000000000000001');
   begin
+    perform public.descontar_insumos(jsonb_build_array(jsonb_build_object('id', id_ing_a, 'qty', 1)));
+    raise exception 'FALLO 20b: cocina desconto inventario';
+  exception when insufficient_privilege then null; end; total := total + 1;
+  begin
     update public.tickets set lines = '[{"x":1}]' where number = num_a;
     raise exception 'FALLO 21: cocina cambio el contenido de una comanda';
   exception when insufficient_privilege then null; end; total := total + 1;
@@ -131,6 +147,8 @@ begin
   if v = 801 then raise exception 'FALLO 23: la tasa de A cambio la de B'; end if; total := total + 1;
   select stock into v from public.ingredients where name = 'Harina B' and negocio_id = b;
   if v <> 10 then raise exception 'FALLO 24: A desconto inventario de B'; end if; total := total + 1;
+  select stock into v from public.ingredients where id = id_ing_a;
+  if v <> 46.5 then raise exception 'FALLO 24b: descontar_insumos dejo % (se esperaba 46.5)', v; end if; total := total + 1;
   select status into txt from public.dining_tables where negocio_id = b and number = 1;
   if txt <> 'disponible' then raise exception 'FALLO 25: la mesa 1 de B cambio'; end if; total := total + 1;
   select negocio_id::text into txt from public.device_tokens where token = 'token-de-prueba-cocina-a-0000000000000001';
@@ -167,7 +185,7 @@ begin
   -- los datos de A siguen intactos (mas lo creado en la prueba)
   select jsonb_build_object('products', (select count(*) from public.products where negocio_id = a) - 1,
                             'sales', (select count(*) from public.sales where negocio_id = a),
-                            'ingredients', (select count(*) from public.ingredients where negocio_id = a),
+                            'ingredients', (select count(*) from public.ingredients where negocio_id = a) - 1,
                             'gastos', (select count(*) from public.gastos where negocio_id = a)) into despues;
   if antes <> despues then raise exception 'FALLO 33: cambiaron los datos de A: % -> %', antes, despues; end if; total := total + 1;
 

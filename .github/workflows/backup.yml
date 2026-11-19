@@ -1,30 +1,73 @@
 name: Backup DB
 
+# Respaldo diario de la base de datos, CIFRADO.
+# El repositorio es publico: los archivos de Actions los puede descargar cualquiera con cuenta de GitHub,
+# por eso el respaldo se cifra con una clave que solo tu conoces y, sin esa clave, el workflow se detiene
+# en vez de subir los datos en claro.
+#
+# Secretos necesarios (Settings -> Secrets and variables -> Actions):
+#   SUPABASE_DB_URL     cadena de conexion "Session pooler" de Supabase (boton Connect del proyecto).
+#                       La conexion directa (db.<proyecto>.supabase.co) no funciona desde GitHub: solo tiene IPv6.
+#   BACKUP_PASSPHRASE   una clave larga que inventes y guardes en un lugar seguro. Sin ella no se puede abrir el respaldo.
+#
+# Para abrir un respaldo:  gpg -d respaldo.tar.gz.gpg | tar -xz
 on:
   schedule:
-    - cron: '0 6 * * *'   # todos los dias a las 6:00 UTC (ajustable)
-  workflow_dispatch:        # tambien se puede correr a mano
+    - cron: '17 6 * * *'   # todos los dias, 2:17 am en Venezuela
+  workflow_dispatch:
+
+concurrency:
+  group: backup-db
+  cancel-in-progress: false
 
 jobs:
   backup:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - name: Instalar Supabase CLI
-        uses: supabase/setup-cli@v1
-        with:
-          version: latest
+      - name: Revisar secretos
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          CLAVE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ -z "$DB_URL" ]; then echo "::error::Falta el secreto SUPABASE_DB_URL (cadena Session pooler de Supabase)"; exit 1; fi
+          if [ -z "$CLAVE" ]; then echo "::error::Falta el secreto BACKUP_PASSPHRASE: sin el, el respaldo quedaria legible para cualquiera"; exit 1; fi
+          case "$DB_URL" in *pooler.supabase.com*) ;; *) echo "::warning::SUPABASE_DB_URL no parece ser la conexion Session pooler; si falla, usa esa";; esac
 
-      - name: Respaldar estructura (schema)
-        run: supabase db dump --db-url "${{ secrets.SUPABASE_DB_URL }}" -f schema.sql
+      - name: Instalar pg_dump 17 (misma version que Supabase)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-common > /dev/null
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y > /dev/null
+          sudo apt-get install -y -qq postgresql-client-17 > /dev/null
+          /usr/lib/postgresql/17/bin/pg_dump --version
 
-      - name: Respaldar datos
-        run: supabase db dump --db-url "${{ secrets.SUPABASE_DB_URL }}" --data-only -f data.sql
+      - name: Respaldar
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          PGD=/usr/lib/postgresql/17/bin/pg_dump
+          mkdir respaldo
+          # tablas y funciones del sistema (public y private), en formato que se puede restaurar por partes
+          $PGD "$DB_URL" --schema=public --schema=private --no-owner --no-privileges -Fc -f respaldo/comandapp.dump
+          # accesos (correos y claves cifradas de Supabase Auth) para poder recuperar los usuarios
+          $PGD "$DB_URL" --data-only --table=auth.users --table=auth.identities --no-owner -f respaldo/accesos.sql
+          ls -la respaldo
 
-      - name: Guardar respaldo
+      - name: Cifrar
+        env:
+          CLAVE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          tar -czf respaldo.tar.gz respaldo
+          printf '%s' "$CLAVE" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
+            --symmetric --cipher-algo AES256 -o respaldo.tar.gz.gpg respaldo.tar.gz
+          rm -rf respaldo respaldo.tar.gz
+          ls -la respaldo.tar.gz.gpg
+
+      - name: Guardar respaldo cifrado
         uses: actions/upload-artifact@v4
         with:
-          name: supabase-backup
-          path: |
-            schema.sql
-            data.sql
-          retention-days: 90
+          name: respaldo-${{ github.run_number }}
+          path: respaldo.tar.gz.gpg
+          retention-days: 30

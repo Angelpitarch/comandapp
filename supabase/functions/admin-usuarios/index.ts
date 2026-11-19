@@ -52,10 +52,10 @@ Deno.serve(async (req) => {
   const { data: quien, error: errQuien } = await admin.auth.getUser(jwt);
   const miCorreo = quien?.user?.email?.toLowerCase();
   if (errQuien || !miCorreo) return json({ error: 'Tu sesion expiro. Inicia sesion de nuevo.' }, 401);
-  const { data: admins, error: errAdmins } = await admin.from('app_users')
-    .select('id,email,negocio_id,negocios(estado,vence_el)').eq('role', 'admin').eq('active', true);
-  if (errAdmins) return json({ error: 'No se pudo comprobar tu rol' }, 500);
-  const yo = (admins ?? []).find((a) => (a.email ?? '').toLowerCase() === miCorreo);
+  // Los correos se guardan en minusculas (la base lo exige), asi que basta una comparacion exacta.
+  const { data: yo, error: errYo } = await admin.from('app_users')
+    .select('id,email,negocio_id,negocios(estado,vence_el)').eq('email', miCorreo).eq('role', 'admin').eq('active', true).maybeSingle();
+  if (errYo) return json({ error: 'No se pudo comprobar tu rol' }, 500);
   if (!yo) return json({ error: 'Solo un administrador puede gestionar usuarios' }, 403);
   // 2) Su negocio debe estar activo y al dia; todo lo que haga queda dentro de ese negocio
   const neg = Array.isArray(yo.negocios) ? yo.negocios[0] : yo.negocios;
@@ -69,10 +69,13 @@ Deno.serve(async (req) => {
   const accion = b.accion;
 
   async function correoLibre(correo: string, excepto?: string): Promise<boolean> {
-    const { data } = await admin.from('app_users').select('id,email');
-    return !(data ?? []).some((u) => (u.email ?? '').toLowerCase() === correo && u.id !== excepto);
+    const { data } = await admin.from('app_users').select('id').eq('email', correo.toLowerCase());
+    return !(data ?? []).some((u) => u.id !== excepto);
   }
   async function idDeAcceso(correo: string): Promise<string | null> {
+    // Directo en la base (una consulta). Si la funcion aun no existe, se busca en la lista de accesos.
+    const { data: id, error: e } = await admin.rpc('auth_id_de_correo', { p_correo: correo });
+    if (!e) return (id as string | null) ?? null;
     for (let page = 1; page <= 20; page++) {
       const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
       if (error) return null;

@@ -24,7 +24,9 @@ const DESC = {
   tickets: 'Comandas enviadas a cocina',
 };
 // Tablas que aqui solo se leen (tienen su propia pantalla o son internas)
-const SOLO_LECTURA = { app_users: 'Los usuarios se editan en la sección Usuarios, para que su acceso y su PIN queden bien.', device_tokens: 'La administra el servidor de avisos.' };
+const SOLO_LECTURA = { app_users: 'Los usuarios se editan en la sección Usuarios, para que su acceso y su PIN queden bien.', device_tokens: 'La administra el servidor de avisos.', negocios: 'Los datos del negocio se cambian en Configuración.' };
+// Columnas que pone el sistema: se muestran pero no se pueden cambiar.
+const DEL_SISTEMA = new Set(['negocio_id']);
 const OCULTAS = { app_users: ['pin', 'pin_hash'] };
 const PAGE = 50;
 
@@ -170,8 +172,8 @@ function valorInput(c, v) {
 }
 function campo(c, v, nueva) {
   const id = `f-${c.columna}`;
-  const bloqueado = c.es_pk && !nueva;
-  const hint = [c.tipo_dato, c.nulo ? 'puede quedar vacío' : 'obligatorio', nueva && c.por_defecto ? `por defecto: ${c.por_defecto}` : ''].filter(Boolean).join(', ');
+  const bloqueado = (c.es_pk && !nueva) || DEL_SISTEMA.has(c.columna);
+  const hint = DEL_SISTEMA.has(c.columna) ? 'lo pone el sistema' : [c.tipo_dato, c.nulo ? 'puede quedar vacío' : 'obligatorio', nueva && c.por_defecto ? `por defecto: ${c.por_defecto}` : ''].filter(Boolean).join(', ');
   let input;
   if (isBool(c)) {
     input = html`<select class="input mono" id="${id}" name="${c.columna}" ${bloqueado ? 'disabled' : ''}>
@@ -221,7 +223,7 @@ function editarFila(t, row, ctx) {
     async onSubmit(_d, frm) {
       const out = {};
       for (const c of t.cols) {
-        if (c.es_pk && !nueva) continue;
+        if ((c.es_pk && !nueva) || DEL_SISTEMA.has(c.columna)) continue;
         const el = frm.elements[c.columna];
         if (!el) continue;
         const v = convertir(c, el.value, nueva);

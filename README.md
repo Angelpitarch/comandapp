@@ -109,6 +109,8 @@ solo ve y cambia los datos de su negocio (regla restrictiva por tabla, ademas de
 - `personal_del_negocio(codigo)`: lista el personal de UN negocio para la pantalla de entrada. La vista
   `public_staff`, que listaba a todo el personal sin sesion, se elimino en `0012_cerrar_lista_publica.sql`.
 - Respaldo previo a 0011 dentro de la base: esquema `respaldo_20261119` (sin acceso desde la API).
+- `0014_rendimiento.sql`: políticas más rápidas, `descontar_insumos(lista)` para descontar el inventario de una
+  comanda en una sola llamada, `auth_id_de_correo` (solo para el servidor) y correos siempre en minúsculas.
 
 ### Probar migraciones en local
 
@@ -165,7 +167,21 @@ y el flujo lo guarda solo después de cada `release`. Regla práctica: si cambia
 código Dart, haz `patch`.
 
 Secretos necesarios en GitHub (Settings → Secrets): `SHOREBIRD_TOKEN` y, para el respaldo diario,
-`SUPABASE_DB_URL`.
+`SUPABASE_DB_URL` y `BACKUP_PASSPHRASE`.
+
+## Respaldo diario (cifrado)
+
+El workflow **Backup DB** guarda cada noche una copia de la base de datos (tablas, funciones y accesos)
+como archivo de Actions durante 30 días. Como el repositorio es público, la copia se **cifra** con
+`BACKUP_PASSPHRASE`; sin esa clave el workflow se detiene en vez de subir los datos en claro.
+
+- `SUPABASE_DB_URL`: la cadena **Session pooler** (Supabase → Connect). La conexión directa
+  `db.<proyecto>.supabase.co` solo tiene IPv6 y GitHub no puede usarla.
+- `BACKUP_PASSPHRASE`: una clave larga inventada, guardada fuera de GitHub.
+- Abrir una copia: `gpg -d respaldo.tar.gz.gpg | tar -xz` y luego `pg_restore` sobre `comandapp.dump`.
+- GitHub apaga los workflows programados si el repositorio pasa 60 días sin cambios: si se apaga,
+  se vuelve a encender en Actions → Backup DB → Enable workflow.
+- Con el plan Pro de Supabase hay además copias diarias automáticas del lado de Supabase.
 
 ## Estructura
 

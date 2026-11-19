@@ -38,6 +38,16 @@ async function googleAccessToken(sa: { client_email: string; private_key: string
   return j.access_token as string;
 }
 
+// El permiso de Google dura 1 hora: se guarda mientras la funcion siga encendida
+// (antes se pedia uno nuevo en cada comanda, medio segundo extra por aviso).
+let permiso: { token: string; vence: number } | null = null;
+async function permisoGoogle(sa: { client_email: string; private_key: string }): Promise<string> {
+  if (permiso && permiso.vence > Date.now() + 60_000) return permiso.token;
+  const token = await googleAccessToken(sa);
+  permiso = { token, vence: Date.now() + 55 * 60_000 };
+  return token;
+}
+
 Deno.serve(async (req) => {
   if (req.headers.get('x-webhook-secret') !== Deno.env.get('WEBHOOK_SECRET')) {
     return new Response('forbidden', { status: 403 });
@@ -51,18 +61,18 @@ Deno.serve(async (req) => {
   const title = ev.adicion ? 'Adicion a comanda' : 'Nueva comanda';
   const body = `#${ev.number ?? ''} - ${donde}`;
 
-  const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   // Solo los telefonos del negocio de la comanda (ComandApp tiene varios negocios).
-  let q = admin.from('device_tokens').select('token');
-  if (ev.negocio_id) q = q.eq('negocio_id', ev.negocio_id);
-  const { data: rows, error } = await q;
+  // Sin negocio no se envia nada: nunca se avisa a los telefonos de otros negocios.
+  if (!ev.negocio_id) return new Response('falta negocio_id', { status: 400 });
+  const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+  const { data: rows, error } = await admin.from('device_tokens').select('token').eq('negocio_id', ev.negocio_id);
   if (error) return new Response('db: ' + error.message, { status: 500 });
   if (!rows || rows.length === 0) return new Response('sin dispositivos', { status: 200 });
 
-  const access = await googleAccessToken(sa);
+  const access = await permisoGoogle(sa);
   const url = `https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`;
-  let enviados = 0;
-  for (const { token } of rows) {
+  // Todos los telefonos a la vez (antes uno por uno: con varios equipos el aviso llegaba tarde al ultimo).
+  const resultados = await Promise.all(rows.map(async ({ token }) => {
     const r = await fetch(url, {
       method: 'POST',
       headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
@@ -84,12 +94,14 @@ Deno.serve(async (req) => {
         },
       }),
     });
-    if (r.ok) { enviados++; continue; }
+    if (r.ok) return true;
     const t = await r.text();
     // el celular ya no existe (app desinstalada): se borra su token
     if (r.status === 404 || t.includes('UNREGISTERED')) {
       await admin.from('device_tokens').delete().eq('token', token);
     }
-  }
+    return false;
+  }));
+  const enviados = resultados.filter(Boolean).length;
   return new Response(JSON.stringify({ enviados }), { status: 200 });
 });
