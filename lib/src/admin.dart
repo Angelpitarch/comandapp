@@ -13,6 +13,12 @@ class _AdminScreenState extends State<AdminScreen> {
   final _bizName = TextEditingController();
   final _rateFocus = FocusNode();
   bool _bizTocado = false;
+  bool _cambiandoTasa = false;
+  String _textoTasa() {
+    if (!store.tasaAuto) return 'Apagada: la tasa no cambia hasta que tu la cambies.';
+    if (store.tasaEsBcv) return 'Se actualiza sola cada dia. Fecha valor: ${fechaLarga(store.tasaFecha!)}.';
+    return 'Se pondra sola en cuanto se lea la del BCV (se revisa cada hora).';
+  }
   void _syncRate() {
     if (!_rateFocus.hasFocus) _rate.text = store.rate.toStringAsFixed(2);
     if (!_bizTocado && _bizName.text != store.businessName) _bizName.text = store.businessName;
@@ -218,11 +224,31 @@ class _AdminScreenState extends State<AdminScreen> {
             }, child: const Text('Guardar')),
           ]),
           const SizedBox(height: 14),
+          // Tasa oficial del BCV: se actualiza sola. Apagada, el administrador la escribe a mano.
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: store.tasaAuto,
+            onChanged: _cambiandoTasa ? null : (v) async {
+              setState(() => _cambiandoTasa = true);
+              final err = await store.usarTasaBcv(v);
+              if (!mounted) return;
+              setState(() => _cambiandoTasa = false);
+              _rate.text = store.rate.toStringAsFixed(2);
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err ?? (!v
+                  ? 'Tasa automatica apagada. Escribe la tasa que quieres usar.'
+                  : store.tasaEsBcv ? 'Usando la tasa oficial del BCV: ${ves(store.rate)}' : 'Listo: se pondra la del BCV en cuanto se lea'))));
+            },
+            title: const Text('Tasa oficial del BCV', style: TextStyle(fontWeight: FontWeight.w600, color: kInk)),
+            subtitle: Text(_textoTasa(), style: const TextStyle(fontSize: 12, color: kMuted)),
+          ),
+          const SizedBox(height: 4),
           Row(children: [
-            Expanded(child: TextField(controller: _rate, focusNode: _rateFocus, keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: 'Tasa de cambio', prefixText: '1 USD = ', suffixText: 'Bs', isDense: true))),
+            Expanded(child: TextField(controller: _rate, focusNode: _rateFocus, enabled: !store.tasaAuto,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(labelText: 'Tasa de cambio', prefixText: '1 USD = ', suffixText: 'Bs', isDense: true,
+                    helperText: store.tasaAuto ? 'Para escribirla a mano, apaga la tasa del BCV' : null))),
             const SizedBox(width: 10),
-            FilledButton(onPressed: () async {
+            FilledButton(onPressed: store.tasaAuto ? null : () async {
               final v = double.tryParse(_rate.text.replaceAll(',', '.'));
               if (v != null && v > 0) {
                 await store.setRate(v);
@@ -312,7 +338,7 @@ class _AdminScreenState extends State<AdminScreen> {
         Wrap(spacing: 22, runSpacing: 8, children: [
           _dato('Cuentas cobradas', '${store.todaySales.length}'),
           _dato('Mesas abiertas', '$abiertas'),
-          _dato('Tasa del dia', '${store.rate.toStringAsFixed(2)} Bs'),
+          _dato(store.tasaEsBcv ? 'Tasa BCV' : 'Tasa del dia', '${_fmt(store.rate)} Bs'),
           if (store.todayGastosUsd > 0) _dato('Ventas menos gastos', dualUsd(neto)),
         ]),
       ]),

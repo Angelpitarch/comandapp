@@ -1,12 +1,33 @@
 // Configuracion: nombre del negocio, tasa, apariencia y enlaces utiles.
-import { html, num, parseNum, toast, haceRato, storage } from '../util.js';
+import { html, num, toast, haceRato, storage } from '../util.js';
 import { icon } from '../icons.js';
 import { db } from '../api.js';
-import { S, emit } from '../store.js';
+import { S, emit, rate, tasaEsBcv, proximaTasa, fechaValor } from '../store.js';
 import { listen, seg } from './common.js';
-import { setTheme } from '../app.js';
+import { setTheme, editarTasa } from '../app.js';
 
 const temaActual = () => storage.get('comandas_tema', 'system') || 'system';
+
+function tarjetaTasa() {
+  const bcv = tasaEsBcv();
+  const prox = proximaTasa();
+  const estado = bcv
+    ? html`<span class="badge good">${icon('check', 14)}Oficial del BCV</span>`
+    : S.config.tasa_auto ? html`<span class="badge neutral">Esperando la del BCV</span>` : html`<span class="badge neutral">Escrita a mano</span>`;
+  return html`<section class="card"><div class="card-head"><div><h2>Tasa del día</h2><p>Bolívares por 1 dólar. Cambia en todos los teléfonos al instante.</p></div><button class="btn btn-sm" type="button" data-act="tasa">Cambiar</button></div>
+    <div class="card-body stack">
+      <dl class="kv">
+        <div><dt>Tasa en uso</dt><dd>${num(rate())} Bs</dd></div>
+        <div><dt>Origen</dt><dd>${estado}</dd></div>
+        ${bcv ? html`<div><dt>Fecha valor</dt><dd>${fechaValor(S.config.tasa_fecha)}</dd></div>` : ''}
+        <div><dt>Actualizada</dt><dd>${S.config.updated_at ? haceRato(S.config.updated_at) : '—'}</dd></div>
+        ${prox ? html`<div><dt>Próxima (${fechaValor(prox.fecha_valor)})</dt><dd>${num(prox.usd)} Bs</dd></div>` : ''}
+      </dl>
+      <p class="muted small">${S.config.tasa_auto
+        ? 'Se toma sola de bcv.org.ve: se revisa cada hora y la nueva tasa se aplica a las 12:01 a.m. del día que indica el BCV. Si escribes una tasa a mano, deja de actualizarse sola.'
+        : 'No se actualiza sola. Toca «Cambiar» para escribir otra o para volver a usar la tasa oficial del BCV.'}</p>
+    </div></section>`;
+}
 
 function render() {
   return html`
@@ -17,10 +38,10 @@ function render() {
           <div class="input-group"><input class="input mono" value="${S.me.negocio_codigo}" readonly aria-label="Código del negocio"><button class="btn" type="button" data-act="copiar-codigo">${icon('copy', 16)}Copiar</button></div>
           <span class="hint">Dáselo a tu personal: lo escriben una sola vez en cada teléfono, antes de elegir su nombre y poner su PIN. Se acepta con mayúsculas o espacios.</span></div>` : ''}
         <div class="field"><label for="c-name">Nombre del negocio</label><input class="input" id="c-name" name="business_name" value="${S.config.business_name || ''}"></div>
-        <div class="field"><label for="c-rate">Tasa de cambio (Bs por 1 dólar)</label><div class="input-group"><input class="input" id="c-rate" name="rate" inputmode="decimal" value="${num(S.config.rate)}"><span class="addon">Bs</span></div>
-          <span class="hint">Última actualización ${S.config.updated_at ? haceRato(S.config.updated_at) : '—'}. Cambia en todos los teléfonos al instante.</span></div>
         <div><button class="btn btn-primary" type="submit">Guardar</button></div>
       </form></section>
+
+    ${tarjetaTasa()}
 
     <section class="card"><div class="card-head"><div><h2>Apariencia</h2><p>Solo en este navegador</p></div></div>
       <div class="card-body stack">
@@ -48,6 +69,7 @@ function mount(root, ctx) {
         navigator.clipboard?.writeText(S.me.negocio_codigo).then(() => toast('Código copiado'), () => toast('No se pudo copiar', 'bad'));
         return;
       }
+      if (e.target.closest('[data-act="tasa"]')) { editarTasa(); return; }
       const b = e.target.closest('[data-seg="tema"] button');
       if (b) setTheme(b.dataset.v);
     },
@@ -55,13 +77,9 @@ function mount(root, ctx) {
       if (e.target.dataset.form !== 'negocio') return;
       e.preventDefault();
       const name = e.target.business_name.value.trim();
-      const rate = parseNum(e.target.rate.value);
       if (!name) return toast('Escribe el nombre del negocio', 'bad');
-      if (!(rate > 0)) return toast('Escribe una tasa mayor a cero', 'bad');
       try {
-        const patch = { business_name: name };
-        if (Math.abs(rate - Number(S.config.rate)) > 1e-9) { patch.rate = rate; patch.updated_at = new Date().toISOString(); }
-        const [row] = await db.update('app_config', 'id=eq.1', patch);
+        const [row] = await db.update('app_config', 'id=eq.1', { business_name: name });
         S.config = row; emit(); toast('Configuración guardada');
       } catch (ex) { toast(ex.message, 'bad'); }
     },

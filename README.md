@@ -119,8 +119,33 @@ solo ve y cambia los datos de su negocio (regla restrictiva por tabla, ademas de
 - `0017_reportes.sql`: `reporte_periodo(desde, hasta)`, el reporte de semana o mes calculado con todas las ventas.
 - `0018_politicas_por_accion.sql`: una sola regla de permisos por acción en productos, categorías, ingredientes y
   configuración (mismos permisos, consultas más rápidas).
+- `0019_tasa_bcv.sql` y `0020_tareas_programadas.sql`: tasa del día automática con la tasa oficial del BCV
+  (ver la sección siguiente).
 - Pruebas locales: `prueba_multi_negocio.sql` (40), `prueba_operaciones.sql` (18), `prueba_entrada.sql` (13),
-  `prueba_reportes.sql` (8) y `prueba_roles.sql`.
+  `prueba_reportes.sql` (8), `prueba_tasa.sql` (9) y `prueba_roles.sql`.
+
+## Tasa del día automática (BCV)
+
+Cada negocio puede usar la tasa oficial del dólar que publica el Banco Central de Venezuela, sin escribirla a mano.
+
+- **Cómo se obtiene:** la función en la nube `supabase/functions/tasa-bcv` lee https://www.bcv.org.ve/ (el valor
+  del dólar y del euro y su *fecha valor*) y la guarda en `public.tasas_bcv`. La llama la tarea programada
+  `tasa-bcv-leer` (pg_cron) cada hora al minuto 7.
+- **Cuándo cambia:** el BCV publica en la tarde la tasa del día hábil siguiente. Esa tasa se aplica sola a las
+  12:01 a.m. de Caracas del día que indica (tarea `tasa-bcv-aplicar`). Fines de semana y feriados se mantiene la
+  última publicada.
+- **Automática o manual:** `app_config.tasa_auto` (activa por defecto). Si el administrador escribe una tasa a
+  mano, ese negocio pasa a manual y deja de cambiar solo hasta que vuelva a activar «Tasa oficial del BCV» en
+  Configuración (panel) o en Ajustes del negocio (app). `tasa_origen` (`bcv`/`manual`) y `tasa_fecha` dicen de
+  dónde viene la tasa en uso.
+- **Protecciones:** solo el servidor puede guardar tasas (`guardar_tasa_bcv`); se rechaza una lectura que se
+  aleje más de 40 % de la anterior o con una fecha fuera de rango.
+- **Certificado:** el sitio del BCV envía mal su cadena de certificados (le falta el intermedio de Sectigo). La
+  función lleva incrustado el intermedio oficial «Sectigo Public Server Authentication CA OV R36» (vigente hasta
+  2036) y la conexión se sigue verificando. Si el BCV cambia de certificado y la lectura falla, la tasa se queda en
+  la última leída y se puede escribir a mano mientras tanto.
+- **Revisar que funciona:** en el SQL Editor, `select * from public.tasas_bcv order by fecha_valor desc;` y
+  `select jobname, status, return_message, start_time from cron.job_run_details order by start_time desc limit 10;`
 
 ### Probar migraciones en local
 

@@ -7,6 +7,10 @@ class Store extends ChangeNotifier {
   String? error;
   bool connected = false;
   double rate = 36.5;
+  bool tasaAuto = false;        // el negocio usa la tasa oficial del BCV (se actualiza sola)
+  String tasaOrigen = 'manual'; // 'bcv' o 'manual': de donde viene la tasa en uso
+  DateTime? tasaFecha;          // fecha valor del BCV de la tasa en uso
+  bool get tasaEsBcv => tasaOrigen == 'bcv' && tasaFecha != null;
   String businessName = 'Mi negocio';
   List<Product> products = [];
   List<TableModel> tables = [];
@@ -46,6 +50,7 @@ class Store extends ChangeNotifier {
     escuchar(sb.from('app_config').stream(primaryKey: ['id']), (rows) {
       if (rows.isEmpty) return;
       rate = ((rows.first['rate'] ?? 36.5) as num).toDouble();
+      _leerTasa(rows.first);
       businessName = (rows.first['business_name'] ?? 'Mi negocio') as String;
       motivShown = (rows.first['motiv_shown'] ?? true) as bool;
       connected = true;
@@ -118,6 +123,7 @@ class Store extends ChangeNotifier {
     products = []; tables = []; tickets = []; accounts = {}; takeaways = []; cancellations = [];
     employees = []; gastos = []; takeawayAccounts = {}; sales = []; cashCloses = []; categories = [];
     ingredients = []; appUsers = [];
+    tasaAuto = false; tasaOrigen = 'manual'; tasaFecha = null;
     _carts.clear();
     notifyListeners();
   }
@@ -536,6 +542,24 @@ class Store extends ChangeNotifier {
   Future<void> markMotivShown() async {
     motivShown = true; notifyListeners();
     try { await sb.from('app_config').update(<String, dynamic>{'motiv_shown': true}).eq('id', 1); } catch (e) { _onErr(e); }
+  }
+  void _leerTasa(Map<String, dynamic> r) {
+    if (r.containsKey('rate') && r['rate'] != null) rate = (r['rate'] as num).toDouble();
+    tasaAuto = (r['tasa_auto'] ?? false) as bool;
+    tasaOrigen = (r['tasa_origen'] ?? 'manual') as String;
+    tasaFecha = DateTime.tryParse('${r['tasa_fecha'] ?? ''}');
+  }
+  /// Activa o apaga la tasa oficial del BCV. Devuelve un mensaje de error, o null si salio bien.
+  Future<String?> usarTasaBcv(bool activar) async {
+    try {
+      final r = await sb.rpc('usar_tasa_bcv', params: {'p_activar': activar});
+      if (r is Map) _leerTasa(Map<String, dynamic>.from(r));
+      notifyListeners();
+      return null;
+    } on PostgrestException catch (e) {
+      if (e.code == 'PGRST202') return 'El servidor todavia no tiene esta opcion.';
+      return mensajeDe(e);
+    } catch (e) { return mensajeDe(e); }
   }
   Future<void> setRate(double r) async {
     try { await sb.from('app_config').update(<String, dynamic>{'rate': r, 'updated_at': DateTime.now().toUtc().toIso8601String()}).eq('id', 1); }

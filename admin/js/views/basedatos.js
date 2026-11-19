@@ -21,12 +21,13 @@ const DESC = {
   products: 'Productos del menú',
   sales: 'Ventas cobradas',
   takeaways: 'Pedidos para llevar abiertos',
+  tasas_bcv: 'Tasas oficiales publicadas por el BCV (las guarda el sistema)',
   tickets: 'Comandas enviadas a cocina',
 };
 // Tablas que aqui solo se leen (tienen su propia pantalla o son internas)
-const SOLO_LECTURA = { app_users: 'Los usuarios se editan en la sección Usuarios, para que su acceso y su PIN queden bien.', device_tokens: 'La administra el servidor de avisos.', negocios: 'Los datos del negocio se cambian en Configuración.' };
+const SOLO_LECTURA = { app_users: 'Los usuarios se editan en la sección Usuarios, para que su acceso y su PIN queden bien.', device_tokens: 'La administra el servidor de avisos.', negocios: 'Los datos del negocio se cambian en Configuración.', tasas_bcv: 'Las guarda el sistema leyendo bcv.org.ve cada hora. La tasa del negocio se cambia en Configuración.' };
 // Columnas que pone el sistema: se muestran pero no se pueden cambiar.
-const DEL_SISTEMA = new Set(['negocio_id']);
+const DEL_SISTEMA = new Set(['negocio_id', 'tasa_fecha', 'tasa_origen']);
 const OCULTAS = { app_users: ['pin', 'pin_hash'] };
 const PAGE = 50;
 

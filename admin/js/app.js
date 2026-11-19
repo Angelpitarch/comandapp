@@ -1,7 +1,7 @@
 // Panel de administracion: inicio de sesion, estructura, navegacion y actualizacion automatica.
 import { signIn, comprobarEntrada, signOut, hasSession, sessionEmail, onSessionLost, db } from './api.js';
 import { REFRESH_MS } from './config.js';
-import { S, loadAll, loadLive, emit, onChange, lowIngredients, rate } from './store.js';
+import { S, load, loadAll, loadLive, emit, onChange, lowIngredients, rate, tasaEsBcv, tasaBcvHoy, proximaTasa, fechaValor } from './store.js';
 import { html, raw, setHTML, toast, storage, num, haceRato, openDrawer, revisarPin, parseNum, $ } from './util.js';
 import { icon } from './icons.js';
 
@@ -150,7 +150,7 @@ function renderShell() {
         <button class="icon-btn menu-btn" id="menu-btn" aria-label="Abrir menú">${icon('menu')}</button>
         <div class="title"><h1 id="v-title"></h1><p id="v-sub"></p></div>
         <div class="spacer"></div>
-        <button class="rate-chip" id="rate-btn" title="Cambiar la tasa del día"><span>Tasa</span><b id="rate-val"></b><span>Bs por $</span></button>
+        <button class="rate-chip" id="rate-btn" title="Cambiar la tasa del día"><span id="rate-src">Tasa</span><b id="rate-val"></b><span>Bs por $</span></button>
         <span class="sync" id="sync"></span>
         <button class="icon-btn" id="refresh-btn" title="Actualizar datos" aria-label="Actualizar datos">${icon('refresh')}</button>
         <button class="icon-btn" id="theme-btn" title="Cambiar tema" aria-label="Cambiar tema claro u oscuro"></button>
@@ -197,6 +197,9 @@ function renderShell() {
 
 function paintTop() {
   const rv = $('#rate-val'); if (rv) rv.textContent = num(rate());
+  const rs = $('#rate-src'); if (rs) rs.textContent = tasaEsBcv() ? 'Tasa BCV' : 'Tasa';
+  const rb = $('#rate-btn');
+  if (rb) rb.title = tasaEsBcv() ? `Tasa oficial del BCV, fecha valor ${fechaValor(S.config.tasa_fecha)}. Se actualiza sola.` : 'Tasa escrita a mano. Toca para cambiarla o usar la del BCV.';
   const sy = $('#sync'); if (sy) sy.textContent = S.loadedAt ? 'Actualizado ' + haceRato(S.loadedAt) : '';
   const nav = $('#nav'); if (nav) { setHTML(nav, navHTML()); markNav(); }
   const tb = $('#theme-btn'); if (tb) setHTML(tb, icon(isDark() ? 'sun' : 'moon'));
@@ -284,21 +287,51 @@ onChange(softRepaint);
 setInterval(() => { const sy = $('#sync'); if (sy && S.loadedAt) sy.textContent = 'Actualizado ' + haceRato(S.loadedAt); }, 20000);
 
 // ===================== Tasa del dia =====================
-function editarTasa() {
+/** Cambiar la tasa: usar la oficial del BCV (se actualiza sola) o escribirla a mano. */
+export async function editarTasa() {
+  await load.tasas();
+  const auto = !!S.config.tasa_auto;
+  const bcv = tasaBcvHoy();
+  const prox = proximaTasa();
+  const notaAuto = bcv
+    ? `Oficial del BCV: ${num(bcv.usd)} Bs, fecha valor ${fechaValor(bcv.fecha_valor)}. Cambia sola cada día a las 12:01 a.m. con la que publica el BCV.`
+    : 'Se pondrá sola con la que publica el BCV en cuanto se lea (se revisa cada hora).';
   openDrawer({
     title: 'Tasa de cambio del día',
-    submitLabel: 'Guardar tasa',
+    submitLabel: 'Guardar',
     body: html`<p class="text-2">Se usa en la app y en este panel para mostrar precios y montos en bolívares.</p>
+      <label class="switch"><input type="checkbox" name="auto" ${auto ? 'checked' : ''}><span class="track"></span>Usar la tasa oficial del BCV</label>
+      <p class="hint" data-nota-auto>${auto ? notaAuto : 'Apagado: la tasa no cambia hasta que tú la cambies.'}</p>
       <div class="field"><label for="t-rate">Bolívares por 1 dólar</label>
-        <div class="input-group"><input class="input" id="t-rate" name="rate" inputmode="decimal" value="${num(rate())}"><span class="addon">Bs</span></div>
-        <span class="hint">Tasa actual: ${num(rate())} Bs. Última actualización ${S.config.updated_at ? haceRato(S.config.updated_at) : '—'}.</span></div>`,
+        <div class="input-group"><input class="input" id="t-rate" name="rate" inputmode="decimal" value="${num(auto && bcv ? bcv.usd : rate())}" ${auto ? 'disabled' : ''}><span class="addon">Bs</span></div>
+        <span class="hint">Tasa en uso: ${num(rate())} Bs (${tasaEsBcv() ? 'BCV' : 'escrita a mano'}), actualizada ${S.config.updated_at ? haceRato(S.config.updated_at) : '—'}.</span></div>
+      ${prox ? html`<p class="muted small">El BCV ya publicó la del ${fechaValor(prox.fecha_valor)}: ${num(prox.usd)} Bs.${auto ? ' Se aplica sola ese día.' : ''}</p>` : ''}`,
+    onMount(form) {
+      const sw = form.querySelector('input[name=auto]');
+      const inp = form.querySelector('#t-rate');
+      sw.addEventListener('change', () => {
+        inp.disabled = sw.checked;
+        if (sw.checked && bcv) inp.value = num(bcv.usd);
+        form.querySelector('[data-nota-auto]').textContent = sw.checked ? notaAuto : 'Escribe la tasa que quieres usar. No cambiará sola hasta que vuelvas a activar la del BCV.';
+        if (!sw.checked) inp.focus();
+      });
+    },
     async onSubmit(d) {
-      const v = parseNum(d.rate);
-      if (!(v > 0)) throw new Error('Escribe una tasa mayor a cero');
-      const rows = await db.update('app_config', 'id=eq.1', { rate: v, updated_at: new Date().toISOString() });
-      S.config = rows[0];
+      if (d.auto) {
+        if (!S.config.tasa_auto || !tasaEsBcv()) await db.rpc('usar_tasa_bcv', { p_activar: true });
+        await load.config();
+        toast(tasaEsBcv() ? `Usando la tasa oficial del BCV: ${num(rate())} Bs` : 'Listo: se pondrá la tasa del BCV en cuanto se lea');
+      } else {
+        const v = parseNum(d.rate);
+        if (!(v > 0)) throw new Error('Escribe una tasa mayor a cero');
+        if (S.config.tasa_auto) await db.rpc('usar_tasa_bcv', { p_activar: false });
+        // si dejo el numero como estaba (se muestra redondeado), no se toca la tasa
+        const mostrado = parseNum(num(auto && bcv ? bcv.usd : rate()));
+        if (Math.abs(v - mostrado) > 1e-9) await db.update('app_config', 'id=eq.1', { rate: v, updated_at: new Date().toISOString() });
+        await load.config();
+        toast('Tasa guardada. Ya no se actualizará sola.');
+      }
       emit();
-      toast('Tasa actualizada');
     },
   });
 }

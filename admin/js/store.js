@@ -1,6 +1,6 @@
 // Datos del negocio en memoria + las mismas reglas de calculo que usa la app (lib/main.dart).
 import { db, f } from './api.js';
-import { addDays, startOfDay } from './util.js';
+import { addDays, startOfDay, MESES } from './util.js';
 
 export const GASTO_CATS = {
   ingredientes: 'Ingredientes / compras',
@@ -21,6 +21,7 @@ export const S = {
   products: [], ingredients: [], categories: [], users: [], employees: [],
   tables: [], takeaways: [], accountItems: [], openTickets: [],
   closes: [], gastos: [], cancellations: [], turnoSales: [],
+  tasas: [], // ultimas tasas publicadas por el BCV (la mas nueva primero)
   loadedAt: null,
 };
 
@@ -32,6 +33,7 @@ export const emit = () => listeners.forEach((fn) => fn());
 const salesCache = new Map();
 export const load = {
   async config() { const r = await db.select('app_config', 'select=*&id=eq.1'); if (r[0]) S.config = r[0]; },
+  async tasas() { S.tasas = await db.select('tasas_bcv', 'select=fecha_valor,usd&order=fecha_valor.desc&limit=3').catch(() => S.tasas); },
   async products() { S.products = await db.all('products', 'select=*&order=name'); },
   async ingredients() { S.ingredients = await db.all('ingredients', 'select=*&order=name'); },
   async categories() { S.categories = await db.all('categories', 'select=*&order=position'); },
@@ -56,6 +58,7 @@ export async function loadAll() {
   await Promise.all([
     load.config(), load.products(), load.ingredients(), load.categories(), load.users(), load.employees(),
     load.tables(), load.takeaways(), load.accountItems(), load.openTickets(), load.gastos(), load.cancellations(), load.turnoSales(),
+    load.tasas(),
   ]);
   salesCache.clear();
   S.loadedAt = new Date();
@@ -81,6 +84,24 @@ export const clearSalesCache = () => salesCache.clear();
 
 // ---------- Reglas del negocio (iguales a la app) ----------
 export const rate = () => Number(S.config.rate) || 0;
+
+// ---------- Tasa del BCV ----------
+/** Hoy en Venezuela, "AAAA-MM-DD" (la tasa cambia a las 12:01 a.m. de Caracas, no a la hora de este equipo). */
+export const hoyCaracas = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(new Date());
+/** "2026-11-19" -> "jueves 19 de noviembre" */
+export function fechaValor(d) {
+  if (!d) return '';
+  const [y, m, dd] = String(d).slice(0, 10).split('-').map(Number);
+  const f = new Date(y, m - 1, dd);
+  const dia = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'][f.getDay()];
+  return `${dia} ${dd} de ${MESES[m - 1]}`;
+}
+/** La tasa en uso viene del BCV. */
+export const tasaEsBcv = () => S.config.tasa_origen === 'bcv' && !!S.config.tasa_fecha;
+/** Tasa que el BCV ya publico para un dia que todavia no llega (se aplica sola a las 12:01 a.m.). */
+export const proximaTasa = () => S.tasas.find((t) => t.fecha_valor > hoyCaracas()) || null;
+/** Tasa del BCV vigente hoy (la ultima con fecha valor de hoy o antes). */
+export const tasaBcvHoy = () => S.tasas.find((t) => t.fecha_valor <= hoyCaracas()) || null;
 export const toUsd = (amt, cur) => (cur === 'ves' ? (rate() > 0 ? Number(amt) / rate() : 0) : Number(amt) || 0);
 export const toBs = (usdAmount) => (Number(usdAmount) || 0) * rate();
 export const lastCloseAt = () => S.closes[0]?.closed_at || null;

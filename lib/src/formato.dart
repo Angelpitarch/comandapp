@@ -21,3 +21,7 @@ String dualPrice(double amt, Currency c) => '${usd(store.toUsd(amt, c))} · ${ve
 String two(int n) => n.toString().padLeft(2, '0');
 String hhmm(DateTime d) => '${two(d.hour)}:${two(d.minute)}';
 String fecha(DateTime d) => '${two(d.day)}/${two(d.month)}/${d.year}';
+const _diasNombre = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo'];
+const _mesesNombre = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+/// "jueves 19 de noviembre"
+String fechaLarga(DateTime d) => '${_diasNombre[d.weekday - 1]} ${d.day} de ${_mesesNombre[d.month - 1]}';
