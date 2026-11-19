@@ -1109,6 +1109,7 @@ class _LoginScreenState extends State<LoginScreen> {
   String _negocio = '';     // nombre del negocio
   List<Map<String, dynamic>> _staff = [];
   Map<String, dynamic>? _sel;
+  bool _noEncontrado = false; // el codigo guardado ya no lleva a un negocio activo
   final _codigoCtrl = TextEditingController();
 
   @override
@@ -1140,12 +1141,13 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
     setState(() {
       _loading = false;
+      _noEncontrado = s != null && s.isEmpty;
       if (s == null) {
         _err = 'Sin conexion. Revisa internet e intenta de nuevo.';
       } else {
         _staff = s;
         _negocio = s.isNotEmpty ? (s.first['negocio_nombre'] ?? '') as String : '';
-        if (s.isEmpty) _err = 'No encontramos un negocio activo con el codigo "$codigo".';
+        if (s.isEmpty) _err = 'Este dispositivo esta vinculado al negocio "$codigo", pero ese negocio no esta activo en este momento.';
       }
     });
   }
@@ -1166,7 +1168,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _cambiarNegocio() async {
     try { await (await SharedPreferences.getInstance()).remove(kPrefCodigo); } catch (_) {}
     if (!mounted) return;
-    setState(() { _codigo = null; _staff = []; _sel = null; _pin = ''; _err = null; _codigoCtrl.text = ''; });
+    setState(() { _codigo = null; _staff = []; _sel = null; _pin = ''; _err = null; _noEncontrado = false; _codigoCtrl.text = ''; });
   }
 
   void _tap(String d) {
@@ -1296,11 +1298,14 @@ class _LoginScreenState extends State<LoginScreen> {
           OutlinedButton.icon(
             style: OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Colors.white24)),
             onPressed: _cargarStaff, icon: const Icon(Icons.refresh), label: const Text('Reintentar')),
+          // Solo si el negocio guardado ya no existe o no esta activo se puede vincular otro.
+          if (_noEncontrado) ...[
+            const SizedBox(height: 8),
+            Center(child: TextButton.icon(onPressed: _cambiarNegocio,
+                icon: const Icon(Icons.link, size: 18), label: const Text('Vincular a otro negocio'))),
+          ],
         ] else
           for (final p in _staff) _personaTile(p),
-        const SizedBox(height: 10),
-        Center(child: TextButton.icon(onPressed: _cambiarNegocio,
-            icon: const Icon(Icons.swap_horiz, size: 18), label: const Text('Cambiar de negocio'))),
       ]);
 
   Widget _personaTile(Map<String, dynamic> p) {
@@ -2305,6 +2310,24 @@ class _AdminScreenState extends State<AdminScreen> {
   void dispose() { store.removeListener(_syncRate); store.removeListener(_checkMotiv); _rateFocus.dispose(); _rate.dispose(); _bizName.dispose(); super.dispose(); }
   void _ir(Widget w) => Navigator.push(context, MaterialPageRoute(builder: (_) => w));
 
+  // Quita el codigo del negocio guardado en este telefono (por ejemplo, si el equipo pasa a otro negocio).
+  void _desvincular() {
+    showDialog<void>(context: context, builder: (dctx) => AlertDialog(
+      icon: const Icon(Icons.link_off, color: kBad, size: 36),
+      title: const Text('Desvincular este dispositivo'),
+      content: Text('Se cerrara la sesion y este dispositivo dejara de estar vinculado a "${store.businessName}". '
+          'Para volver a usarlo habra que escribir el codigo del negocio.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(dctx), child: const Text('Cancelar')),
+        FilledButton(style: FilledButton.styleFrom(backgroundColor: kBad), onPressed: () async {
+          Navigator.pop(dctx);
+          try { await (await SharedPreferences.getInstance()).remove(kPrefCodigo); } catch (_) {}
+          if (mounted) _logout(context);
+        }, child: const Text('Desvincular')),
+      ],
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -2352,7 +2375,7 @@ class _AdminScreenState extends State<AdminScreen> {
               }),
             ]),
             const Padding(padding: EdgeInsets.only(left: 30, bottom: 10), child: Align(alignment: Alignment.centerLeft,
-              child: Text('Daselo a tu personal: lo escriben una sola vez en cada telefono.', style: TextStyle(fontSize: 12, color: kMuted)))),
+              child: Text('Daselo a tu personal: lo escriben una sola vez en cada telefono y queda vinculado.', style: TextStyle(fontSize: 12, color: kMuted)))),
           ],
           Row(children: [
             Expanded(child: TextField(controller: _bizName, onChanged: (_) => _bizTocado = true,
@@ -2392,6 +2415,9 @@ class _AdminScreenState extends State<AdminScreen> {
         const Padding(padding: EdgeInsets.only(top: 6), child: Text(
           'Muestra el reporte del dia y reinicia mesas, pedidos y comandas. Solo cuando todo este cobrado. No borra las ventas.',
           textAlign: TextAlign.center, style: TextStyle(fontSize: 11.5, color: kMuted))),
+        Center(child: TextButton.icon(onPressed: _desvincular,
+            style: TextButton.styleFrom(foregroundColor: kMuted),
+            icon: const Icon(Icons.link_off, size: 18), label: const Text('Desvincular este dispositivo del negocio'))),
         _titulo('Productos y precios', ayuda: 'Toca un producto para editarlo'),
         if (store.products.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('Cargando productos...', style: TextStyle(color: Colors.grey))),
         for (final c in store.categories) ...[

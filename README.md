@@ -13,8 +13,9 @@ real entre los telefonos, la tableta de cocina y el panel web.
 2. **Quien eres**: aparece solo el personal activo de ese negocio.
 3. **PIN de 6 numeros** con el teclado en pantalla (o el teclado de la computadora en la version web).
 
-"Cambiar de negocio" borra el codigo guardado. Si el negocio esta suspendido o vencido, la app lo dice
-al entrar y no muestra datos.
+El telefono queda **vinculado** a ese negocio: el personal no puede cambiarlo desde la entrada. Solo un
+administrador, ya dentro de la app, puede usar "Desvincular este dispositivo del negocio" (Administrador, al final
+de los ajustes). Si el negocio vinculado se suspende o deja de existir, la entrada lo avisa y ofrece vincular otro.
 
 ## Marca
 
