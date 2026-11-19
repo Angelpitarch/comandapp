@@ -1011,6 +1011,45 @@ ThemeData temaComandApp() {
   );
 }
 
+// Pantalla ancha (computadora o tableta horizontal): se usa un diseno propio, no el del telefono.
+bool esAncho(BuildContext context) => MediaQuery.sizeOf(context).width >= 900;
+
+// Barra superior con la marca. En pantalla ancha muestra el logo, el negocio y quien tiene la sesion.
+PreferredSizeWidget barraMarca(BuildContext context, String titulo, {List<Widget> actions = const []}) {
+  if (!esAncho(context)) return AppBar(title: Text(titulo), actions: actions);
+  return AppBar(
+    toolbarHeight: 64,
+    titleSpacing: Navigator.canPop(context) ? 0 : 20,
+    title: AnimatedBuilder(animation: store, builder: (_, __) => Row(children: [
+      Image.asset('assets/marca/simbolo.png', height: 30, errorBuilder: (_, __, ___) => const SizedBox()),
+      const SizedBox(width: 14),
+      Text(titulo),
+      if (store.businessName.isNotEmpty) ...[
+        Container(width: 1, height: 22, margin: const EdgeInsets.symmetric(horizontal: 14), color: Colors.white24),
+        Flexible(child: Text(store.businessName, overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white60, fontSize: 16, fontWeight: FontWeight.w500))),
+      ],
+    ])),
+    actions: [
+      if (store.currentUser.isNotEmpty)
+        Padding(padding: const EdgeInsets.only(right: 10), child: Center(child: Container(
+          padding: const EdgeInsets.fromLTRB(4, 4, 12, 4),
+          decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(99)),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            CircleAvatar(radius: 13, backgroundColor: kAmber, foregroundColor: kInk,
+                child: Text(store.currentUser.trim().isEmpty ? '?' : store.currentUser.trim()[0].toUpperCase(),
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700))),
+            const SizedBox(width: 8),
+            Text(store.currentUser, style: const TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w600)),
+            Text('  ·  ${kRoles[store.currentUserRole] ?? store.currentUserRole}', style: const TextStyle(color: Colors.white54, fontSize: 12.5)),
+          ]),
+        ))),
+      ...actions,
+      const SizedBox(width: 12),
+    ],
+  );
+}
+
 Widget _homeForRole(String role) =>
     role == 'admin' ? const AdminScreen() : (role == 'cocina' ? const KitchenScreen() : const TablesScreen());
 void _logout(BuildContext context) {
@@ -1110,6 +1149,7 @@ class _LoginScreenState extends State<LoginScreen> {
   List<Map<String, dynamic>> _staff = [];
   Map<String, dynamic>? _sel;
   bool _noEncontrado = false; // el codigo guardado ya no lleva a un negocio activo
+  bool _ancho = false;        // computadora o tableta horizontal: entrada en dos paneles
   final _codigoCtrl = TextEditingController();
 
   @override
@@ -1212,6 +1252,23 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     final t = Theme.of(context);
     final paso = _codigo == null ? 'codigo' : (_sel == null ? 'personal' : 'pin');
+    _ancho = esAncho(context);
+    final contenido = DefaultTextStyle.merge(
+      style: const TextStyle(color: Colors.white),
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 220),
+        child: KeyedSubtree(
+          key: ValueKey(paso),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            if (_ancho) Padding(padding: const EdgeInsets.only(bottom: 14), child: Text(
+                'PASO ${paso == 'codigo' ? 1 : (paso == 'personal' ? 2 : 3)} DE 3',
+                textAlign: paso == 'pin' ? TextAlign.center : TextAlign.start,
+                style: const TextStyle(color: kAmber, fontSize: 12.5, fontWeight: FontWeight.w700, letterSpacing: 1.4))),
+            paso == 'codigo' ? _pasoCodigo() : (paso == 'personal' ? _listaPersonal() : _pinPad()),
+          ]),
+        ),
+      ),
+    );
     return Theme(
       data: t.copyWith(
         colorScheme: t.colorScheme.copyWith(primary: kAmber, onPrimary: kInk),
@@ -1227,39 +1284,72 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
       child: Scaffold(
         backgroundColor: kLoginBg,
-        body: SafeArea(child: Center(child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 400),
-            child: DefaultTextStyle.merge(
-              style: const TextStyle(color: Colors.white),
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 220),
-                child: KeyedSubtree(
-                  key: ValueKey(paso),
-                  child: paso == 'codigo' ? _pasoCodigo() : (paso == 'personal' ? _listaPersonal() : _pinPad()),
-                ),
-              ),
-            ),
-          ),
-        ))),
+        body: _ancho
+            ? Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Expanded(flex: 11, child: _ladoMarca()),
+                Expanded(flex: 9, child: Container(
+                  decoration: const BoxDecoration(color: Color(0xFF121212), border: Border(left: BorderSide(color: Colors.white10))),
+                  child: Center(child: SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 40),
+                    child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 420), child: contenido),
+                  )),
+                )),
+              ])
+            : SafeArea(child: Center(child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+                child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 400), child: contenido),
+              ))),
       ),
     );
   }
+
+  // Panel izquierdo de la entrada en computadora: marca y lo que ofrece ComandApp.
+  Widget _ladoMarca() => Container(
+        decoration: const BoxDecoration(gradient: RadialGradient(
+          center: Alignment(-1, -1), radius: 1.6, colors: [Color(0xFF2A1E05), kLoginBg], stops: [0, 0.62])),
+        padding: const EdgeInsets.fromLTRB(64, 52, 64, 36),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Image.asset('assets/marca/logo-horizontal.png', height: 50,
+              errorBuilder: (_, __, ___) => const Text('ComandApp', style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w700))),
+          const Spacer(),
+          const Text('Comandas, caja e inventario\nen un solo lugar',
+              style: TextStyle(color: Colors.white, fontSize: 40, fontWeight: FontWeight.w700, height: 1.15, letterSpacing: -0.5)),
+          const SizedBox(height: 16),
+          const SizedBox(width: 520, child: Text(
+              'Pedidos directo a cocina, cobros en dolares y bolivares, y el control de tu negocio en tiempo real desde cualquier equipo.',
+              style: TextStyle(color: Colors.white70, fontSize: 16, height: 1.45))),
+          const SizedBox(height: 30),
+          _ventaja(Icons.receipt_long_outlined, 'Comandas a cocina con aviso al instante'),
+          _ventaja(Icons.point_of_sale_outlined, 'Cobros en USD y Bs con la tasa del dia'),
+          _ventaja(Icons.inventory_2_outlined, 'Inventario con recetas y alertas de stock'),
+          const Spacer(flex: 2),
+          Text('© ${DateTime.now().year} ComandApp', style: const TextStyle(color: Colors.white38, fontSize: 12.5)),
+        ]),
+      );
+  Widget _ventaja(IconData i, String t) => Padding(padding: const EdgeInsets.only(bottom: 14), child: Row(children: [
+        Container(width: 36, height: 36, alignment: Alignment.center,
+          decoration: BoxDecoration(color: kAmber.withOpacity(0.12), borderRadius: BorderRadius.circular(10)),
+          child: Icon(i, color: kAmber, size: 20)),
+        const SizedBox(width: 14),
+        Text(t, style: const TextStyle(color: Colors.white, fontSize: 15.5, fontWeight: FontWeight.w500)),
+      ]));
 
   Widget _simbolo(double ancho) => Image.asset('assets/marca/simbolo.png', width: ancho, fit: BoxFit.contain,
       errorBuilder: (_, __, ___) => Icon(Icons.lunch_dining, size: ancho * 0.6, color: kAmber));
 
   Widget _pasoCodigo() => Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Center(child: _simbolo(170)),
-        const SizedBox(height: 12),
-        Center(child: Image.asset('assets/marca/texto.png', width: 200,
-          errorBuilder: (_, __, ___) => const Text('ComandApp', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w700)))),
-        const SizedBox(height: 40),
-        const Text('Bienvenido', textAlign: TextAlign.center, style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
+        if (!_ancho) ...[
+          Center(child: _simbolo(170)),
+          const SizedBox(height: 12),
+          Center(child: Image.asset('assets/marca/texto.png', width: 200,
+            errorBuilder: (_, __, ___) => const Text('ComandApp', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w700)))),
+          const SizedBox(height: 40),
+        ],
+        Text(_ancho ? 'Vincula este equipo' : 'Bienvenido', textAlign: _ancho ? TextAlign.start : TextAlign.center,
+            style: TextStyle(fontSize: _ancho ? 30 : 26, fontWeight: FontWeight.w700)),
         const SizedBox(height: 6),
-        const Text('Escribe el codigo de tu negocio (te lo da el administrador). Solo se pide la primera vez en este dispositivo.',
-            textAlign: TextAlign.center, style: TextStyle(color: Colors.white70, height: 1.35)),
+        Text('Escribe el codigo de tu negocio (te lo da el administrador). Solo se pide la primera vez en este dispositivo.',
+            textAlign: _ancho ? TextAlign.start : TextAlign.center, style: const TextStyle(color: Colors.white70, height: 1.35)),
         const SizedBox(height: 24),
         TextField(
           controller: _codigoCtrl,
@@ -1283,12 +1373,12 @@ class _LoginScreenState extends State<LoginScreen> {
       ]);
 
   Widget _listaPersonal() => Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Center(child: _simbolo(110)),
-        const SizedBox(height: 18),
-        Text(_negocio.isEmpty ? 'Tu negocio' : _negocio, textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
+        if (!_ancho) ...[Center(child: _simbolo(110)), const SizedBox(height: 18)],
+        Text(_negocio.isEmpty ? 'Tu negocio' : _negocio, textAlign: _ancho ? TextAlign.start : TextAlign.center,
+            style: TextStyle(fontSize: _ancho ? 30 : 24, fontWeight: FontWeight.w700)),
         const SizedBox(height: 4),
-        const Text('Toca tu nombre para entrar', textAlign: TextAlign.center, style: TextStyle(color: Colors.white70)),
+        Text(_ancho ? 'Elige tu nombre para entrar' : 'Toca tu nombre para entrar',
+            textAlign: _ancho ? TextAlign.start : TextAlign.center, style: const TextStyle(color: Colors.white70)),
         const SizedBox(height: 22),
         if (_loading)
           const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator(color: kAmber)))
@@ -1346,12 +1436,11 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget _pinPad() {
     final name = ((_sel?['name'] ?? '') as String).trim();
     return Focus(autofocus: true, onKeyEvent: _tecla, child: Column(mainAxisSize: MainAxisSize.min, children: [
-      _simbolo(84),
-      const SizedBox(height: 14),
+      if (!_ancho) ...[_simbolo(84), const SizedBox(height: 14)],
       Text(name.isEmpty ? 'Hola' : 'Hola, $name', textAlign: TextAlign.center,
           style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
       const SizedBox(height: 4),
-      const Text('Ingresa tu PIN de 6 numeros', style: TextStyle(color: Colors.white70)),
+      Text(_ancho ? 'Ingresa tu PIN de 6 numeros (puedes usar el teclado)' : 'Ingresa tu PIN de 6 numeros', style: const TextStyle(color: Colors.white70)),
       const SizedBox(height: 22),
       Row(mainAxisAlignment: MainAxisAlignment.center, children: List.generate(6, (i) => AnimatedContainer(
             duration: const Duration(milliseconds: 120),
@@ -1431,11 +1520,11 @@ class TablesScreen extends StatelessWidget {
     );
   }
 
-  Widget _takeawayCard(BuildContext context, Takeaway t) {
+  Widget _takeawayCard(BuildContext context, Takeaway t, {double ancho = 150}) {
     final total = store.takeawayTotalUsd(t.id);
     final pagada = t.status == 'pagada';
     final c = pagada ? const Color(0xFF8D6E63) : const Color(0xFF00897B);
-    return SizedBox(width: 150, child: Card(child: InkWell(
+    return SizedBox(width: ancho, child: Card(child: InkWell(
       onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TakeawayDetailScreen(id: t.id, name: t.name))),
       child: Container(
         decoration: BoxDecoration(border: Border(top: BorderSide(color: c, width: 5))),
@@ -1456,21 +1545,82 @@ class TablesScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Mesas'), actions: [
+      appBar: barraMarca(context, 'Mesas', actions: [
         IconButton(tooltip: 'Cambiar mi PIN', icon: const Icon(Icons.lock_reset, color: Colors.white),
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChangePinScreen()))),
         IconButton(tooltip: 'Salir', icon: const Icon(Icons.logout, color: Colors.white), onPressed: () => _logout(context)),
       ]),
-      floatingActionButton: FloatingActionButton.extended(
+      floatingActionButton: esAncho(context) ? null : FloatingActionButton.extended(
         onPressed: () => _nuevoLlevar(context),
         icon: const Icon(Icons.takeout_dining), label: const Text('Para llevar'),
       ),
       body: AnimatedBuilder(animation: store, builder: (context, _) {
         if (store.tables.isEmpty) return const Center(child: CircularProgressIndicator());
+        // Computadora o tableta: mesas a la izquierda y pedidos para llevar en un panel fijo a la derecha.
+        if (esAncho(context)) {
+          return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Expanded(child: Column(children: [
+              lowStockWaiterBanner(),
+              _resumenMesas(),
+              Expanded(child: _gridMesas(context)),
+            ])),
+            _panelLlevar(context),
+          ]);
+        }
         return Column(children: [
           lowStockWaiterBanner(),
           if (store.takeaways.isNotEmpty) _takeawaySection(context),
-          Expanded(child: LayoutBuilder(builder: (context, cns) {
+          Expanded(child: _gridMesas(context)),
+        ]);
+      }),
+    );
+  }
+
+  // Conteo rapido arriba de las mesas (solo en pantalla ancha).
+  Widget _resumenMesas() {
+    final estados = [for (final t in store.tables) store.tableStatus(t.number)];
+    final libres = estados.where((e) => e == 'disponible').length;
+    final listos = estados.where((e) => e == 'listo').length;
+    Widget dato(Color c, String txt) => Padding(padding: const EdgeInsets.only(right: 18), child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Container(width: 10, height: 10, decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
+          const SizedBox(width: 7),
+          Text(txt, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: kInk)),
+        ]));
+    return Padding(padding: const EdgeInsets.fromLTRB(20, 18, 20, 0), child: Row(children: [
+      const Text('Salon', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: kInk)),
+      const SizedBox(width: 24),
+      dato(statusColor('disponible'), '$libres libres'),
+      dato(statusColor('ocupada'), '${estados.length - libres} ocupadas'),
+      if (listos > 0) dato(statusColor('listo'), '$listos con pedido listo'),
+    ]));
+  }
+
+  // Panel fijo de pedidos para llevar (pantalla ancha).
+  Widget _panelLlevar(BuildContext context) => Container(
+        width: 320,
+        decoration: const BoxDecoration(color: Colors.white, border: Border(left: BorderSide(color: kLine))),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Padding(padding: const EdgeInsets.fromLTRB(18, 18, 18, 10), child: Row(children: [
+            const Icon(Icons.takeout_dining_outlined, color: kPrimary),
+            const SizedBox(width: 10),
+            const Expanded(child: Text('Para llevar', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: kInk))),
+            Text('${store.takeaways.where((t) => t.status != 'pagada').length} abiertos', style: const TextStyle(color: kMuted, fontSize: 13)),
+          ])),
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 18), child: FilledButton.icon(
+            style: FilledButton.styleFrom(backgroundColor: kAmber, foregroundColor: kInk),
+            onPressed: () => _nuevoLlevar(context), icon: const Icon(Icons.add), label: const Text('Nuevo pedido para llevar'))),
+          const SizedBox(height: 12),
+          const Divider(height: 1),
+          Expanded(child: store.takeaways.isEmpty
+              ? const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Sin pedidos para llevar', style: TextStyle(color: kMuted))))
+              : ListView(padding: const EdgeInsets.all(12), children: [
+                  for (final t in store.takeaways) Padding(padding: const EdgeInsets.only(bottom: 8),
+                      child: SizedBox(height: 104, child: _takeawayCard(context, t, ancho: double.infinity))),
+                ])),
+        ]),
+      );
+
+  Widget _gridMesas(BuildContext context) => LayoutBuilder(builder: (context, cns) {
           final cols = (cns.maxWidth / 180).floor().clamp(2, 6).toInt();
           return GridView.builder(
             padding: const EdgeInsets.all(14),
@@ -1507,11 +1657,7 @@ class TablesScreen extends StatelessWidget {
               ));
             },
           );
-        })),
-        ]);
-      }),
-    );
-  }
+        });
 }
 
 // ======================= DETALLE DE MESA =======================
@@ -2127,7 +2273,7 @@ class _KitchenScreenState extends State<KitchenScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _flash ? const Color(0xFF5A3D00) : kLoginBg,
-      appBar: AppBar(title: const Text('Cocina'), actions: [
+      appBar: barraMarca(context, 'Cocina', actions: [
         IconButton(tooltip: 'Cambiar mi PIN', icon: const Icon(Icons.lock_reset, color: Colors.white),
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChangePinScreen()))),
         IconButton(tooltip: 'Salir', icon: const Icon(Icons.logout, color: Colors.white), onPressed: () => _logout(context)),
@@ -2147,7 +2293,7 @@ class _KitchenScreenState extends State<KitchenScreen> {
             Text('Las nuevas apareceran aqui con un aviso', style: TextStyle(color: Colors.white38, fontSize: 13)),
           ]));
         }
-        return LayoutBuilder(builder: (context, cns) {
+        final grid = LayoutBuilder(builder: (context, cns) {
           final cols = (cns.maxWidth / 300).floor().clamp(1, 5).toInt();
           return GridView.builder(
             padding: const EdgeInsets.all(12),
@@ -2203,6 +2349,29 @@ class _KitchenScreenState extends State<KitchenScreen> {
             },
           );
         });
+        if (!esAncho(context)) return grid;
+        // Pantalla ancha (monitor de cocina): conteo por estado arriba de las comandas.
+        int n(String e) => list.where((t) => t.status == e).length;
+        Widget dato(Color c, String txt) => Container(
+              margin: const EdgeInsets.only(right: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(color: Colors.white.withOpacity(0.06), borderRadius: BorderRadius.circular(99)),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Container(width: 9, height: 9, decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
+                const SizedBox(width: 8),
+                Text(txt, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13.5)),
+              ]),
+            );
+        return Column(children: [
+          Padding(padding: const EdgeInsets.fromLTRB(16, 16, 16, 4), child: Row(children: [
+            const Text('Comandas en curso', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
+            const SizedBox(width: 18),
+            dato(_c('nueva'), '${n('nueva')} nuevas'),
+            dato(_c('preparando'), '${n('preparando')} preparando'),
+            dato(_c('lista'), '${n('lista')} listas'),
+          ])),
+          Expanded(child: grid),
+        ]);
       }),
     );
   }
@@ -2331,17 +2500,46 @@ class _AdminScreenState extends State<AdminScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Administrador'), actions: [
+      appBar: barraMarca(context, 'Administrador', actions: [
         IconButton(tooltip: 'Cambiar mi PIN', icon: const Icon(Icons.lock_reset),
           onPressed: () => _ir(const ChangePinScreen())),
         IconButton(tooltip: 'Salir', icon: const Icon(Icons.logout), onPressed: () => _logout(context)),
       ]),
-      body: AnimatedBuilder(animation: store, builder: (context, _) => Center(child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 900),
-        child: ListView(padding: const EdgeInsets.fromLTRB(16, 16, 16, 32), children: [
-        _resumenHoy(),
-        const SizedBox(height: 14),
-        if (store.lowStock.isNotEmpty) ...[lowStockCard(), const SizedBox(height: 14)],
+      body: AnimatedBuilder(animation: store, builder: (context, _) => LayoutBuilder(builder: (context, c) {
+        // Computadora o tableta horizontal: dos columnas (resumen y ajustes a la izquierda, accesos y productos a la derecha).
+        if (c.maxWidth >= 1000) {
+          return Align(alignment: Alignment.topCenter, child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1440),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              SizedBox(width: 400, child: ListView(padding: const EdgeInsets.fromLTRB(24, 24, 12, 32), children: [
+                _resumenHoy(),
+                const SizedBox(height: 14),
+                if (store.lowStock.isNotEmpty) ...[lowStockCard(), const SizedBox(height: 14)],
+                ..._bloqueAjustes(context),
+              ])),
+              Expanded(child: ListView(padding: const EdgeInsets.fromLTRB(12, 4, 24, 32), children: [
+                ..._bloqueAtajos(),
+                ..._bloqueProductos(columnas: c.maxWidth >= 1300 ? 3 : 2),
+              ])),
+            ]),
+          ));
+        }
+        return Center(child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 900),
+          child: ListView(padding: const EdgeInsets.fromLTRB(16, 16, 16, 32), children: [
+            _resumenHoy(),
+            const SizedBox(height: 14),
+            if (store.lowStock.isNotEmpty) ...[lowStockCard(), const SizedBox(height: 14)],
+            ..._bloqueAtajos(),
+            ..._bloqueAjustes(context),
+            ..._bloqueProductos(columnas: 1),
+          ]),
+        ));
+      })),
+    );
+  }
+
+  List<Widget> _bloqueAtajos() => [
         _seccion('Ventas y caja', [
           _Atajo(Icons.today_outlined, 'Historial de hoy', () => _ir(const HistoryScreen())),
           _Atajo(Icons.calendar_month_outlined, 'Historial de dias', () => _ir(const HistoryDaysScreen())),
@@ -2361,6 +2559,9 @@ class _AdminScreenState extends State<AdminScreen> {
           _Atajo(Icons.table_bar_outlined, 'Mesas', () => _ir(const TablesScreen())),
           _Atajo(Icons.soup_kitchen_outlined, 'Cocina', () => _ir(const KitchenScreen())),
         ]),
+      ];
+
+  List<Widget> _bloqueAjustes(BuildContext context) => [
         _titulo('Ajustes del negocio'),
         Card(child: Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 16), child: Column(children: [
           if (store.negocioCodigo.isNotEmpty) ...[
@@ -2418,26 +2619,33 @@ class _AdminScreenState extends State<AdminScreen> {
         Center(child: TextButton.icon(onPressed: _desvincular,
             style: TextButton.styleFrom(foregroundColor: kMuted),
             icon: const Icon(Icons.link_off, size: 18), label: const Text('Desvincular este dispositivo del negocio'))),
+      ];
+
+  List<Widget> _bloqueProductos({required int columnas}) => [
         _titulo('Productos y precios', ayuda: 'Toca un producto para editarlo'),
         if (store.products.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('Cargando productos...', style: TextStyle(color: Colors.grey))),
         for (final c in store.categories) ...[
           if (store.products.any((p) => p.cat == c.key)) ...[
             Padding(padding: const EdgeInsets.only(top: 10, bottom: 6, left: 4),
               child: Text('${c.emoji}  ${c.label}', style: const TextStyle(fontWeight: FontWeight.w700, color: kPrimary, fontSize: 15))),
-            for (final p in store.products.where((p) => p.cat == c.key))
-              Card(margin: const EdgeInsets.only(bottom: 8), child: ListTile(
-                leading: Container(width: 44, height: 44, alignment: Alignment.center,
-                  decoration: BoxDecoration(color: const Color(0xFFFFF3D6), borderRadius: BorderRadius.circular(12)),
-                  child: Text(p.emoji, style: const TextStyle(fontSize: 22))),
-                title: Text(p.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                subtitle: Text('${dualPrice(p.price, p.cur)}${p.trackStock ? '  ·  stock: ${p.stock.toStringAsFixed(0)}' : ''}${store.maxMakeable(p) >= 0 ? '  ·  alcanza ~${store.maxMakeable(p)}' : ''}', style: const TextStyle(fontSize: 12)),
-                onTap: () => _ir(ProductForm(existing: p)),
-                trailing: Switch(value: p.available, onChanged: (_) => store.toggleProduct(p)))),
+            LayoutBuilder(builder: (context, cc) {
+              const gap = 8.0;
+              final w = (cc.maxWidth - gap * (columnas - 1)) / columnas;
+              return Wrap(spacing: gap, children: [
+                for (final p in store.products.where((p) => p.cat == c.key))
+                  SizedBox(width: w, child: Card(margin: const EdgeInsets.only(bottom: 8), child: ListTile(
+                    leading: Container(width: 44, height: 44, alignment: Alignment.center,
+                      decoration: BoxDecoration(color: const Color(0xFFFFF3D6), borderRadius: BorderRadius.circular(12)),
+                      child: Text(p.emoji, style: const TextStyle(fontSize: 22))),
+                    title: Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    subtitle: Text('${dualPrice(p.price, p.cur)}${p.trackStock ? '  ·  stock: ${p.stock.toStringAsFixed(0)}' : ''}${store.maxMakeable(p) >= 0 ? '  ·  alcanza ~${store.maxMakeable(p)}' : ''}', style: const TextStyle(fontSize: 12)),
+                    onTap: () => _ir(ProductForm(existing: p)),
+                    trailing: Switch(value: p.available, onChanged: (_) => store.toggleProduct(p))))),
+              ]);
+            }),
           ],
         ],
-      ])))),
-    );
-  }
+      ];
 
   Widget _titulo(String t, {String? ayuda}) => Padding(
         padding: const EdgeInsets.fromLTRB(4, 20, 4, 10),
@@ -2450,7 +2658,7 @@ class _AdminScreenState extends State<AdminScreen> {
   Widget _seccion(String t, List<_Atajo> atajos) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         _titulo(t),
         LayoutBuilder(builder: (context, c) {
-          final cols = c.maxWidth >= 720 ? 4 : (c.maxWidth >= 440 ? 3 : 2);
+          final cols = c.maxWidth >= 980 ? 6 : (c.maxWidth >= 720 ? 4 : (c.maxWidth >= 440 ? 3 : 2));
           const gap = 10.0;
           final w = (c.maxWidth - gap * (cols - 1)) / cols;
           return Wrap(spacing: gap, runSpacing: gap, children: [for (final a in atajos) SizedBox(width: w, child: a)]);
