@@ -1,40 +1,21 @@
 -- 0014: rendimiento y una sola llamada para descontar inventario. Seguro de repetir.
+-- (Sin instrucciones que borren nada: solo crea o ajusta.)
 
 -- 1) app_users: auth.jwt() se evalua una vez por consulta, no una vez por fila.
-drop policy if exists app_users_select on public.app_users;
-create policy app_users_select on public.app_users for select to authenticated
+alter policy app_users_select on public.app_users
   using ((select private.is_admin()) or lower(email) = lower(coalesce((select auth.jwt()) ->> 'email', '')));
 
--- 2) Una sola politica permisiva por accion. Antes "_write" (para todo) se sumaba a "_select"
---    en cada lectura; ahora escribir queda en tres politicas separadas, solo para el administrador.
-do $$
-declare t text;
-begin
-  foreach t in array array['app_config', 'categories', 'ingredients', 'products'] loop
-    execute format('drop policy if exists %I on public.%I', t || '_write', t);
-    execute format('drop policy if exists %I on public.%I', t || '_insert', t);
-    execute format('drop policy if exists %I on public.%I', t || '_update', t);
-    execute format('drop policy if exists %I on public.%I', t || '_delete', t);
-    execute format('create policy %I on public.%I for insert to authenticated with check ((select private.is_admin()))', t || '_insert', t);
-    execute format('create policy %I on public.%I for update to authenticated using ((select private.is_admin())) with check ((select private.is_admin()))', t || '_update', t);
-    execute format('create policy %I on public.%I for delete to authenticated using ((select private.is_admin()))', t || '_delete', t);
-  end loop;
-end $$;
-
--- 3) Descontar todos los insumos de una comanda en UNA llamada (antes era una llamada por ingrediente,
---    lo que hacia esperar al mesero varios segundos con mala senal).
---    p_items = [{"id": "<ingrediente>", "qty": 1.5}, ...]
-create or replace function public.descontar_insumos(p_items jsonb)
+-- 2) Descontar insumos de un negocio (uso interno: lo llaman descontar_insumos y enviar_comanda).
+--    p_items = [{"id": "<ingrediente>", "qty": 1.5}, ...]; dos lineas del mismo insumo se suman.
+create or replace function private.descontar_insumos_de(p_neg uuid, p_items jsonb)
 returns void
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = ''
 as $$
-declare
-  v_neg uuid := private.negocio_actual();
 begin
-  if coalesce(private.staff_role(), '') not in ('admin', 'mesero') or v_neg is null then
-    raise exception 'No autorizado' using errcode = '42501';
+  if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) = 0 then
+    return;
   end if;
-  if jsonb_typeof(p_items) is distinct from 'array' or jsonb_array_length(p_items) > 500 then
+  if jsonb_array_length(p_items) > 500 then
     raise exception 'Lista de insumos invalida' using errcode = '22023';
   end if;
   if exists (select 1 from jsonb_array_elements(p_items) e
@@ -45,13 +26,32 @@ begin
      set stock = i.stock - x.qty, updated_at = now()
     from (select (e ->> 'id')::uuid as id, sum((e ->> 'qty')::numeric) as qty
             from jsonb_array_elements(p_items) e group by 1) x
-   where i.id = x.id and i.negocio_id = v_neg;
+   where i.id = x.id and i.negocio_id = p_neg;
+end;
+$$;
+revoke all on function private.descontar_insumos_de(uuid, jsonb) from public;
+
+-- 3) Descontar todos los insumos de una comanda en UNA llamada (antes era una llamada por ingrediente).
+create or replace function public.descontar_insumos(p_items jsonb)
+returns void
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  v_neg uuid := private.negocio_actual();
+begin
+  if coalesce(private.staff_role(), '') not in ('admin', 'mesero') or v_neg is null then
+    raise exception 'No autorizado' using errcode = '42501';
+  end if;
+  if jsonb_typeof(p_items) is distinct from 'array' then
+    raise exception 'Lista de insumos invalida' using errcode = '22023';
+  end if;
+  perform private.descontar_insumos_de(v_neg, p_items);
 end;
 $$;
 revoke all on function public.descontar_insumos(jsonb) from public, anon;
 grant execute on function public.descontar_insumos(jsonb) to authenticated;
 
--- 4) Para la funcion admin-usuarios: encontrar el acceso de un correo sin recorrer todos los usuarios.
+-- 4) Para las funciones del servidor: encontrar el acceso de un correo sin recorrer todos los usuarios.
 --    Solo la puede usar el servidor (service_role), nunca la app ni el panel.
 create or replace function public.auth_id_de_correo(p_correo text)
 returns uuid
@@ -63,6 +63,9 @@ revoke all on function public.auth_id_de_correo(text) from public, anon, authent
 grant execute on function public.auth_id_de_correo(text) to service_role;
 
 -- 5) Los correos se guardan siempre en minusculas (asi se pueden buscar con una comparacion exacta).
-update public.app_users set email = lower(email) where email <> lower(email);
-alter table public.app_users drop constraint if exists app_users_email_minusculas;
-alter table public.app_users add constraint app_users_email_minusculas check (email is null or email = lower(email));
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'app_users_email_minusculas') then
+    alter table public.app_users add constraint app_users_email_minusculas check (email is null or email = lower(email));
+  end if;
+end $$;

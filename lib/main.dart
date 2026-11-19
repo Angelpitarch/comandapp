@@ -433,7 +433,22 @@ class Store extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _onErr(Object e) { error = 'Error de conexion: $e'; notifyListeners(); }
+  void _onErr(Object e) { error = mensajeDe(e); notifyListeners(); }
+  /// Convierte un error tecnico en un mensaje para el personal.
+  String mensajeDe(Object e) {
+    if (e is PostgrestException) {
+      if (e.code == '22023' || e.code == 'P0001' || e.code == 'P0002') return e.message; // mensajes escritos para el usuario
+      if (e.code == '42501') return 'No tienes permiso para hacer esto.';
+      return 'No se pudo guardar. Intenta de nuevo (codigo ${e.code ?? '?'}).';
+    }
+    if (e is AuthException) return 'Tu sesion expiro. Sal y vuelve a entrar.';
+    final t = e.toString();
+    if (RegExp('SocketException|ClientException|Failed host lookup|TimeoutException|Connection').hasMatch(t)) {
+      return 'Sin conexion a internet. Revisa la senal e intenta de nuevo.';
+    }
+    return 'Ocurrio un error: $t';
+  }
+  String? errorCobro; // ultimo motivo por el que no se pudo cobrar (lo muestra la pantalla de cobro)
   void clearError() { error = null; notifyListeners(); }
 
   List<CartItem> cart(String key) => _carts.putIfAbsent(key, () => []);
@@ -602,11 +617,36 @@ class Store extends ChangeNotifier {
     return null;
   }
   /// Personal activo del negocio con ese codigo. null = sin conexion; lista vacia = codigo no existe.
+  /// Personal del negocio para la pantalla de entrada (nombre y rol, sin correos).
   Future<List<Map<String, dynamic>>?> loadStaff(String codigo) async {
     try {
-      final res = await sb.rpc('personal_del_negocio', params: <String, dynamic>{'p_codigo': codigo});
+      final res = await sb.rpc('personal_para_entrar', params: <String, dynamic>{'p_codigo': codigo});
       return List<Map<String, dynamic>>.from(res as List);
+    } on PostgrestException catch (e) {
+      if (e.code != 'PGRST202') { debugPrint('personal: $e'); return null; }
+      try { // base de datos anterior a 0016
+        final res = await sb.rpc('personal_del_negocio', params: <String, dynamic>{'p_codigo': codigo});
+        return List<Map<String, dynamic>>.from(res as List);
+      } catch (e2) { debugPrint('personal: $e2'); return null; }
     } catch (e) { debugPrint('personal: $e'); return null; }
+  }
+  /// Comprueba el PIN en el servidor (con bloqueo tras varios intentos). Devuelve el correo para abrir la
+  /// sesion si es correcto, o el mensaje para mostrar.
+  Future<(String?, String?)> comprobarPin(Map<String, dynamic> persona, String pin) async {
+    final viejo = persona['email'] as String?;
+    if (viejo != null && viejo.isNotEmpty) return (viejo, null); // base de datos anterior a 0016
+    try {
+      final r = await sb.rpc('entrar_con_pin', params: <String, dynamic>{'p_usuario': persona['id'], 'p_pin': pin});
+      final m = Map<String, dynamic>.from(r as Map);
+      if (m['ok'] == true) return (m['correo'] as String?, null);
+      if (m['motivo'] == 'bloqueado') {
+        return (null, 'Demasiados intentos. Por seguridad espera ${m['espera_min']} min y vuelve a intentar.');
+      }
+      final quedan = (m['restantes'] as num?)?.toInt();
+      return (null, quedan != null && quedan <= 2 ? 'PIN incorrecto. Te quedan $quedan intentos.' : 'PIN incorrecto');
+    } catch (e) {
+      return (null, mensajeDe(e));
+    }
   }
   /// Cambia el PIN del usuario que tiene la sesion abierta.
   /// Usa la funcion 'cambiar_pin' de Supabase (aplica al instante).
@@ -703,6 +743,26 @@ class Store extends ChangeNotifier {
   }
   double productProfitUsd(Product p) => toUsd(p.price, p.cur) - productCostUsd(p);
   double get todayCostUsd => salesCostUsd(todaySales);
+  /// Reporte de un periodo calculado en el servidor con TODAS las ventas (null si no hay conexion).
+  Future<Map<String, dynamic>?> reportePeriodo(DateTime ini, DateTime fin) async {
+    try {
+      final r = await sb.rpc('reporte_periodo', params: <String, dynamic>{
+        'p_desde': ini.toUtc().toIso8601String(), 'p_hasta': fin.toUtc().toIso8601String()});
+      return Map<String, dynamic>.from(r as Map);
+    } catch (e) {
+      debugPrint('reporte: $e');
+      return null;
+    }
+  }
+  /// Costo estimado de unas unidades vendidas ({producto: cantidad}) con los costos actuales.
+  double costoDeUnidades(Map<String, int> unidades) {
+    var c = 0.0;
+    for (final e in unidades.entries) {
+      final ps = products.where((x) => x.name == e.key).toList();
+      if (ps.isNotEmpty) c += productCostUsd(ps.first) * e.value;
+    }
+    return c;
+  }
   double salesCostUsd(Iterable<Sale> list) {
     var c = 0.0;
     for (final s in list) {
@@ -853,31 +913,58 @@ class Store extends ChangeNotifier {
     final lines = [for (final it in items) <String, dynamic>{
       'name': it.p.name, 'qty': it.qty, 'size': it.size?.name, 'extras': exNames(it), 'quita': quitaNames(it), 'note': it.note,
     }];
+    final insumos = <String, double>{};
+    for (final it in items) { _acumularInsumos(it.p, it.qty.toDouble(), insumos, skip: it.quitaIng); }
+    final conCuenta = table != null || takeawayId != null;
+    final cuenta = [if (conCuenta) for (final it in items) <String, dynamic>{
+      'product_name': it.p.name, 'qty': it.qty, 'size': it.size?.name, 'extras': exNames(it), 'quita': quitaNames(it),
+      'note': it.note, 'unit_usd': toUsd(it.unit(), it.p.cur),
+    }];
+    // Mismo id mientras el pedido no cambie: si la senal falla y se reintenta, la comanda no se duplica.
+    final firma = '$table|$takeawayId|$note|$lines';
+    final pendiente = _envioPendiente[key];
+    final idComanda = (pendiente != null && pendiente.$1 == firma) ? pendiente.$2 : nuevoId();
+    _envioPendiente[key] = (firma, idComanda);
     try {
-      final tRes = await sb.from('tickets').insert(<String, dynamic>{
-        if (numeroSesion != null) 'number': numeroSesion,
-        'table_number': table, 'takeaway_id': takeawayId, 'takeaway_name': takeawayName, 'waiter': currentUser,
-        'status': 'nueva', 'adicion': adicion, 'note': note, 'lines': lines,
-      }).select();
-      final ticketId = tRes.isNotEmpty ? tRes.first['id'] as String : null;
-      final number = tRes.isNotEmpty ? ((tRes.first['number'] ?? 0) as num).toInt() : 0;
-      final insumos = <String, double>{};
-      for (final it in items) { _acumularInsumos(it.p, it.qty.toDouble(), insumos, skip: it.quitaIng); }
-      // La cuenta, la mesa y el inventario no dependen entre si: se guardan al mismo tiempo.
-      await Future.wait<dynamic>([
-        if (table != null || takeawayId != null)
-          sb.from('account_items').insert([for (final it in items) <String, dynamic>{
-            'table_number': table, 'takeaway_id': takeawayId, 'ticket_id': ticketId, 'product_name': it.p.name, 'qty': it.qty, 'size': it.size?.name,
-            'extras': exNames(it), 'quita': quitaNames(it), 'note': it.note, 'unit_usd': toUsd(it.unit(), it.p.cur),
-          }]),
-        if (table != null)
-          sb.from('dining_tables').update(<String, dynamic>{'status': 'ocupada', 'waiter': currentUser, 'opened_at': DateTime.now().toUtc().toIso8601String()}).eq('number', table),
-        _descontarInsumos(insumos),
-      ]);
+      int number;
+      try {
+        // Comanda, cuenta, mesa e inventario en UNA operacion: o se guarda todo, o nada.
+        final r = await sb.rpc('enviar_comanda', params: <String, dynamic>{'p': <String, dynamic>{
+          'id': idComanda, 'numero': numeroSesion, 'mesa': table, 'llevar_id': takeawayId, 'llevar_nombre': takeawayName,
+          'mesero': currentUser, 'nota': note, 'lineas': lines, 'cuenta': cuenta,
+          'insumos': [for (final e in insumos.entries) if (e.value > 0) <String, dynamic>{'id': e.key, 'qty': e.value}],
+        }});
+        number = (r as num).toInt();
+      } on PostgrestException catch (e) {
+        if (e.code != 'PGRST202') rethrow;
+        number = await _enviarPorPartes(idComanda, numeroSesion, table, takeawayId, takeawayName, note, lines, cuenta, insumos);
+      }
+      _envioPendiente.remove(key);
       if (!keepCart) items.clear();
       notifyListeners();
       return number;
     } catch (e) { _onErr(e); return null; }
+  }
+
+  final Map<String, (String, String)> _envioPendiente = {};
+
+  // Solo si la base de datos aun no tiene enviar_comanda (antes de aplicar 0015): los pasos por separado.
+  Future<int> _enviarPorPartes(String id, int? numero, int? table, String? takeawayId, String? takeawayName, String? note,
+      List<Map<String, dynamic>> lines, List<Map<String, dynamic>> cuenta, Map<String, double> insumos) async {
+    final tRes = await sb.from('tickets').insert(<String, dynamic>{
+      'id': id, if (numero != null) 'number': numero,
+      'table_number': table, 'takeaway_id': takeawayId, 'takeaway_name': takeawayName, 'waiter': currentUser,
+      'status': 'nueva', 'adicion': numero != null, 'note': note, 'lines': lines,
+    }).select();
+    final number = tRes.isNotEmpty ? ((tRes.first['number'] ?? 0) as num).toInt() : 0;
+    await Future.wait<dynamic>([
+      if (cuenta.isNotEmpty)
+        sb.from('account_items').insert([for (final c in cuenta) <String, dynamic>{...c, 'table_number': table, 'takeaway_id': takeawayId, 'ticket_id': id}]),
+      if (table != null)
+        sb.from('dining_tables').update(<String, dynamic>{'status': 'ocupada', 'waiter': currentUser, 'opened_at': DateTime.now().toUtc().toIso8601String()}).eq('number', table),
+      _descontarInsumos(insumos),
+    ]);
+    return number;
   }
 
   Future<void> advance(Ticket t) async {
@@ -932,25 +1019,32 @@ class Store extends ChangeNotifier {
         saleLines = [for (final it in items) <String, dynamic>{'name': it.p.name, 'qty': it.qty, 'lineUsd': lineUsd(it)}];
         total = items.fold(0.0, (s, it) => s + lineUsd(it));
       }
+      errorCobro = null;
+      final pagos = [for (final p in payments) <String, dynamic>{'method': p.method, 'amountUsd': p.amountUsd, 'reference': p.reference}];
+      final id = ventaId ?? nuevoId();
       try {
-        await sb.from('sales').insert(<String, dynamic>{
-          if (ventaId != null) 'id': ventaId,
-          'table_number': table, 'customer': customer, 'total_usd': total, 'lines': saleLines,
-          'payments': [for (final p in payments) <String, dynamic>{'method': p.method, 'amountUsd': p.amountUsd, 'reference': p.reference}],
-        });
+        // Venta y estado de la mesa (o del pedido para llevar) en UNA operacion. Reintentar con el mismo id no duplica,
+        // y una mesa ya cobrada no se puede cobrar otra vez.
+        await sb.rpc('cobrar', params: <String, dynamic>{'p': <String, dynamic>{
+          'id': id, 'mesa': table, 'llevar_id': takeawayId, 'pagos': pagos,
+          if (table == null && takeawayId == null) ...<String, dynamic>{'lineas': saleLines, 'total': total},
+        }});
       } on PostgrestException catch (e) {
-        if (e.code != '23505') rethrow; // ya se habia guardado en el intento anterior
+        if (e.code != 'PGRST202') rethrow;
+        // base de datos sin la funcion nueva (antes de aplicar 0015): los pasos por separado
+        try {
+          await sb.from('sales').insert(<String, dynamic>{
+            'id': id, 'table_number': table, 'customer': customer, 'total_usd': total, 'lines': saleLines, 'payments': pagos,
+          });
+        } on PostgrestException catch (e2) {
+          if (e2.code != '23505') rethrow; // ya se habia guardado en el intento anterior
+        }
+        if (takeawayId != null) await sb.from('takeaways').update(<String, dynamic>{'status': 'pagada'}).eq('id', takeawayId);
       }
-      if (table != null) {
-        // Conservamos la cuenta y fijamos el estado desde la pantalla de cobro.
-      } else if (takeawayId != null) {
-        await sb.from('takeaways').update(<String, dynamic>{'status': 'pagada'}).eq('id', takeawayId);
-      } else {
-        cart(cartKey ?? '').clear();
-      }
+      if (table == null && takeawayId == null) cart(cartKey ?? '').clear();
       notifyListeners();
       return true;
-    } catch (e) { _onErr(e); return false; }
+    } catch (e) { errorCobro = mensajeDe(e); return false; }
   }
 
   DateTime? get lastCloseAt => cashCloses.isNotEmpty ? cashCloses.first.closedAt : null;
@@ -1298,15 +1392,15 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _validate() async {
     setState(() => _checking = true);
     await store.saliendo; // si alguien acaba de salir en este telefono, se espera a que termine
-    final email = (_sel?['email'] ?? '') as String;
-    final ok = email.isNotEmpty && await store.signInStaff(email, _pin);
+    final (correo, motivo) = await store.comprobarPin(_sel ?? const <String, dynamic>{}, _pin);
+    final ok = correo != null && await store.signInStaff(correo, _pin);
     final me = ok ? await store.myProfile() : null;
     if (!mounted) return;
     setState(() => _checking = false);
     if (!ok || me == null) {
       if (ok) { sb.auth.signOut(); }
       setState(() {
-        _err = !ok ? 'PIN incorrecto'
+        _err = !ok ? (motivo ?? 'PIN incorrecto')
             : (store.negocioSuspendido ? 'Este negocio no esta activo. Contacta a ComandApp.' : 'Tu usuario no tiene permisos');
         _pin = '';
       });
@@ -2148,7 +2242,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     if (!mounted) return;
     setState(() => _paying = false);
     if (!ok) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo cobrar. Revisa la conexion.')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(store.errorCobro ?? 'No se pudo cobrar. Revisa la conexion.')));
       return;
     }
     if (widget.table != null) {
@@ -3926,6 +4020,10 @@ class ReportesScreen extends StatefulWidget {
 class _ReportesScreenState extends State<ReportesScreen> {
   bool _semana = true;
   int _offset = 0; // 0 = periodo actual, -1 = anterior, ...
+  Future<Map<String, dynamic>?>? _remoto; // reporte del servidor para el periodo elegido
+  @override
+  void initState() { super.initState(); _recargar(); }
+  void _recargar() => _remoto = store.reportePeriodo(_inicio, _fin);
   static const _meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 
   DateTime get _inicio {
@@ -3946,33 +4044,51 @@ class _ReportesScreenState extends State<ReportesScreen> {
     final f = _fin.subtract(const Duration(days: 1));
     return '${fecha(i)} al ${fecha(f)}';
   }
-  void _cambiar(bool semana) => setState(() { _semana = semana; _offset = 0; });
+  void _cambiar(bool semana) => setState(() { _semana = semana; _offset = 0; _recargar(); });
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Reportes')),
-      body: AnimatedBuilder(animation: store, builder: (context, _) {
+      body: FutureBuilder<Map<String, dynamic>?>(future: _remoto, builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
+        return AnimatedBuilder(animation: store, builder: (context, _) {
         final ini = _inicio, fin = _fin;
-        final ventas = store.sales.where((s) => !s.at.isBefore(ini) && s.at.isBefore(fin)).toList();
-        final gastos = store.gastos.where((g) => !g.at.isBefore(ini) && g.at.isBefore(fin)).toList();
-        final totalVentas = ventas.fold<double>(0, (a, s) => a + s.totalUsd);
-        final totalGastos = gastos.fold<double>(0, (a, g) => a + g.amountUsd);
-        final costo = store.salesCostUsd(ventas);
-        final ganancia = totalVentas - costo;
-        final neta = ganancia - totalGastos;
+        final m = snap.data;
+        late final double totalVentas, totalGastos;
+        late final int cuentas;
         final porMetodo = <String, double>{};
         final unidades = <String, int>{};
-        for (final s in ventas) {
-          for (final p in s.payments) { porMetodo[p.method] = (porMetodo[p.method] ?? 0) + p.amountUsd; }
-          for (final l in s.lines) { unidades[l.name] = (unidades[l.name] ?? 0) + l.qty; }
-        }
-        final topProductos = unidades.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
-        // por dia
         final dias = <String, List<double>>{}; // clave AAAA-MM-DD -> [ventas, gastos]
-        String key(DateTime d) => '${d.year}-${two(d.month)}-${two(d.day)}';
-        for (final s in ventas) { (dias[key(s.at)] ??= [0, 0])[0] += s.totalUsd; }
-        for (final g in gastos) { (dias[key(g.at)] ??= [0, 0])[1] += g.amountUsd; }
+        if (m != null) {
+          // del servidor: todas las ventas del periodo
+          totalVentas = (m['ventas'] as num? ?? 0).toDouble();
+          totalGastos = (m['gastos'] as num? ?? 0).toDouble();
+          cuentas = (m['cuentas'] as num? ?? 0).toInt();
+          (m['por_metodo'] as Map? ?? {}).forEach((k, v) => porMetodo['$k'] = (v as num).toDouble());
+          (m['unidades'] as Map? ?? {}).forEach((k, v) => unidades['$k'] = (v as num).round());
+          for (final d in (m['por_dia'] as List? ?? [])) {
+            dias['${d['dia']}'] = [((d['ventas'] ?? 0) as num).toDouble(), ((d['gastos'] ?? 0) as num).toDouble()];
+          }
+        } else {
+          // sin conexion: con las ventas guardadas en este telefono
+          final ventas = store.sales.where((s) => !s.at.isBefore(ini) && s.at.isBefore(fin)).toList();
+          final gastos = store.gastos.where((g) => !g.at.isBefore(ini) && g.at.isBefore(fin)).toList();
+          totalVentas = ventas.fold<double>(0, (a, s) => a + s.totalUsd);
+          totalGastos = gastos.fold<double>(0, (a, g) => a + g.amountUsd);
+          cuentas = ventas.length;
+          String key(DateTime d) => '${d.year}-${two(d.month)}-${two(d.day)}';
+          for (final s in ventas) {
+            for (final p in s.payments) { porMetodo[p.method] = (porMetodo[p.method] ?? 0) + p.amountUsd; }
+            for (final l in s.lines) { unidades[l.name] = (unidades[l.name] ?? 0) + l.qty; }
+            (dias[key(s.at)] ??= [0, 0])[0] += s.totalUsd;
+          }
+          for (final g in gastos) { (dias[key(g.at)] ??= [0, 0])[1] += g.amountUsd; }
+        }
+        final costo = store.costoDeUnidades(unidades);
+        final ganancia = totalVentas - costo;
+        final neta = ganancia - totalGastos;
+        final topProductos = unidades.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
         final diasOrd = dias.entries.toList()..sort((a, b) => b.key.compareTo(a.key));
         Widget fila(String label, double v, {bool bold = false, Color? color}) => Padding(
               padding: const EdgeInsets.symmetric(vertical: 2),
@@ -3988,9 +4104,9 @@ class _ReportesScreenState extends State<ReportesScreen> {
             onSelectionChanged: (v) => _cambiar(v.first)),
           const SizedBox(height: 8),
           Row(children: [
-            IconButton(onPressed: () => setState(() => _offset--), icon: const Icon(Icons.chevron_left)),
+            IconButton(onPressed: () => setState(() { _offset--; _recargar(); }), icon: const Icon(Icons.chevron_left)),
             Expanded(child: Text(_titulo, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15))),
-            IconButton(onPressed: _offset >= 0 ? null : () => setState(() => _offset++), icon: const Icon(Icons.chevron_right)),
+            IconButton(onPressed: _offset >= 0 ? null : () => setState(() { _offset++; _recargar(); }), icon: const Icon(Icons.chevron_right)),
           ]),
           const SizedBox(height: 4),
           Card(color: Colors.green.shade50, child: Padding(padding: const EdgeInsets.all(14),
@@ -4003,7 +4119,9 @@ class _ReportesScreenState extends State<ReportesScreen> {
               const Divider(),
               fila('Ganancia neta', neta, bold: true, color: neta >= 0 ? Colors.green.shade800 : Colors.red),
               const SizedBox(height: 4),
-              Text('${ventas.length} cuentas cobradas', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              Text('$cuentas cuentas cobradas', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              if (m == null) const Text('Sin conexion: calculado con las ventas guardadas en este telefono.',
+                  style: TextStyle(fontSize: 12, color: kBad)),
             ]))),
           const SizedBox(height: 4),
           const Text('El costo usa los precios de compra actuales de los ingredientes, no los de esa fecha. '
@@ -4033,6 +4151,7 @@ class _ReportesScreenState extends State<ReportesScreen> {
               leading: CircleAvatar(radius: 15, backgroundColor: Colors.orange.shade50, child: Text('${e.value}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
               title: Text(e.key)),
         ]);
+        });
       }),
     );
   }

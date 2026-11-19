@@ -45,6 +45,26 @@ function fromToken(j, email) {
     email: j.user?.email || email || session?.email || '',
   };
 }
+/** Comprueba correo + PIN en el servidor antes de abrir sesion (bloqueo tras varios intentos fallidos).
+ *  Devuelve null si se puede entrar, o el mensaje para mostrar. Si la base aun no tiene la funcion, deja seguir. */
+export async function comprobarEntrada(correo, pin) {
+  let r;
+  try {
+    r = await fetchJson(`${URL_BASE}/rest/v1/rpc/entrar_con_correo`, {
+      method: 'POST',
+      headers: { apikey: KEY, Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_correo: correo, p_pin: pin }),
+    });
+  } catch (e) {
+    if (e.status === 404 || e.body?.code === 'PGRST202') return null; // base de datos anterior a 0016
+    throw e;
+  }
+  const m = r.body || {};
+  if (m.ok) return null;
+  if (m.motivo === 'bloqueado') return `Demasiados intentos. Por seguridad espera ${m.espera_min} min y vuelve a intentar.`;
+  return m.restantes <= 2 ? `Correo o PIN incorrecto. Te quedan ${m.restantes} intentos.` : 'Correo o PIN incorrecto';
+}
+
 export async function signIn(email, password) {
   const { body } = await fetchJson(`${URL_BASE}/auth/v1/token?grant_type=password`, {
     method: 'POST', headers: { apikey: KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }),

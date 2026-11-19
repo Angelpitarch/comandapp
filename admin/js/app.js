@@ -1,5 +1,5 @@
 // Panel de administracion: inicio de sesion, estructura, navegacion y actualizacion automatica.
-import { signIn, signOut, hasSession, sessionEmail, onSessionLost, db } from './api.js';
+import { signIn, comprobarEntrada, signOut, hasSession, sessionEmail, onSessionLost, db } from './api.js';
 import { REFRESH_MS } from './config.js';
 import { S, loadAll, loadLive, emit, onChange, lowIngredients, rate } from './store.js';
 import { html, raw, setHTML, toast, storage, num, haceRato, openDrawer, revisarPin, parseNum, $ } from './util.js';
@@ -81,6 +81,8 @@ function renderLogin(msg = '') {
     if (!/^[0-9]{4,6}$/.test(pin)) return fail('El PIN son solo números');
     btn.disabled = true; btn.textContent = 'Entrando…';
     try {
+      const bloqueo = await comprobarEntrada(correo, pin);
+      if (bloqueo) return fail(bloqueo);
       await signIn(correo, `${pin}-comandas`);
       storage.set('comandas_admin_correo', correo);
       const ok = await afterLogin(fail);
