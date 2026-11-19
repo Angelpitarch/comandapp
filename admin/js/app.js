@@ -1,6 +1,6 @@
 // Panel de administracion: inicio de sesion, estructura, navegacion y actualizacion automatica.
 import { signIn, signOut, hasSession, sessionEmail, onSessionLost, db } from './api.js';
-import { APP_URL, REFRESH_MS } from './config.js';
+import { REFRESH_MS } from './config.js';
 import { S, loadAll, loadLive, emit, onChange, lowIngredients, rate } from './store.js';
 import { html, raw, setHTML, toast, storage, num, haceRato, openDrawer, revisarPin, parseNum, $ } from './util.js';
 import { icon } from './icons.js';
@@ -52,6 +52,7 @@ function renderLogin(msg = '') {
       <p class="muted small">Solo para administradores. Mesero y cocina usan la app en el teléfono.</p>
     </section>
     <main class="login-main">
+      <div class="login-brand" aria-hidden="true"><img src="marca/simbolo.png" alt=""><b>Comand<span>App</span></b></div>
       <form class="login-card" id="login-form" novalidate>
         <p class="eyebrow">Panel de administración</p>
         <h2>Bienvenido de nuevo</h2>
@@ -62,7 +63,7 @@ function renderLogin(msg = '') {
         <div class="field"><label for="l-pin">PIN</label>
           <input class="input pin-input" id="l-pin" name="pin" type="password" inputmode="numeric" autocomplete="current-password" maxlength="6" required></div>
         <button class="btn btn-primary btn-block" type="submit" style="height:44px;margin-top:6px">Entrar</button>
-        <div class="login-alt">${icon('external', 16)}<span>¿Eres mesero o cocina? <a href="${APP_URL}">Abre la app</a></span></div>
+        <div class="login-alt">${icon('user', 16)}<span>¿Eres mesero o cocina? Entra desde la app ComandApp en tu teléfono o tableta.</span></div>
       </form>
       <p class="login-foot">© ${new Date().getFullYear()} ComandApp · Comandas, caja e inventario</p>
     </main>
@@ -139,7 +140,6 @@ function renderShell() {
       <div class="brand"><img src="marca/simbolo.png" alt="" onerror="this.style.display='none'"><div><div class="b-name">${S.config.business_name || S.me.negocio_nombre || 'Mi negocio'}</div><div class="b-sub">Panel · ComandApp</div></div></div>
       <div id="nav">${navHTML()}</div>
       <div class="sidebar-foot nav">
-        <a href="${APP_URL}" target="_blank" rel="noopener">${icon('external')}<span>Abrir app (mesero y cocina)</span></a>
         <div class="me"><span class="avatar">${(S.me.name || '?').trim().charAt(0).toUpperCase()}</span><div><b>${S.me.name}</b><span>Administrador</span></div></div>
       </div>
     </aside>

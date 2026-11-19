@@ -3,7 +3,6 @@ import { html, num, parseNum, toast, haceRato, storage } from '../util.js';
 import { icon } from '../icons.js';
 import { db } from '../api.js';
 import { S, emit } from '../store.js';
-import { APP_URL } from '../config.js';
 import { listen, seg } from './common.js';
 import { setTheme } from '../app.js';
 
@@ -28,10 +27,10 @@ function render() {
         <div class="field"><span class="label">Tema</span>${seg('tema', [['system', 'Igual que el sistema'], ['light', 'Claro'], ['dark', 'Oscuro']], temaActual())}</div>
       </div></section>
 
-    <section class="card"><div class="card-head"><div><h2>Pantallas de mesero y cocina</h2><p>La app completa en el navegador</p></div></div>
+    <section class="card"><div class="card-head"><div><h2>App para el personal</h2><p>Mesero, cocina y administrador en el teléfono</p></div></div>
       <div class="card-body stack">
-        <p class="text-2">Abre la misma app de los teléfonos en esta computadora, por ejemplo para usar la pantalla de cocina en un monitor.</p>
-        <div><a class="btn" href="${APP_URL}" target="_blank" rel="noopener">${icon('external', 16)}Abrir la app</a></div>
+        <p class="text-2">Meseros y cocina trabajan con la app ComandApp instalada en un teléfono o una tableta Android. Para la cocina, lo más práctico es una tableta en la pared, o una cajita Android TV conectada a un monitor con un ratón.</p>
+        <p class="text-2">El dueño también puede entrar a la app como administrador para ver el negocio desde cualquier lugar. Este panel funciona igual en el navegador del teléfono.</p>
       </div></section>
 
     <section class="card"><div class="card-head"><div><h2>Sesión</h2><p>${S.me?.email || ''}</p></div></div>

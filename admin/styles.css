@@ -114,7 +114,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .login-card .sub { color: var(--text-2); margin: 6px 0 24px; }
 .login-card .field { margin-bottom: 14px; }
 .pin-input { letter-spacing: .5em; font-family: var(--mono); font-size: 18px !important; }
-@media (max-width: 860px) { .login { grid-template-columns: 1fr; } .login-side { display: none; } }
+.login-brand { display: none; align-items: center; gap: 10px; }
+.login-brand img { height: 40px; width: auto; }
+.login-brand b { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; color: var(--text); }
+.login-brand b span { color: var(--accent-fill); }
+@media (max-width: 860px) { .login { grid-template-columns: 1fr; } .login-side { display: none; } .login-brand { display: flex; } }
 
 /* ===================== Shell ===================== */
 .shell { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr); min-height: 100vh; }

@@ -1,20 +1,15 @@
 name: Pagina web
 
-# Publica en GitHub Pages:
-#   /            -> panel de administracion (carpeta admin/, HTML y JavaScript sin compilar)
-#   /app/        -> la app Flutter (lib/main.dart) compilada para navegador (mesero y cocina)
-# Se ejecuta sola cada vez que cambia el codigo en main, o a mano desde Actions.
+# Publica en GitHub Pages el panel de administracion (carpeta admin/, HTML y JavaScript sin compilar).
+# Meseros y cocina usan la app ComandApp en Android; la app ya no se publica para navegador.
+# En /app/ queda un aviso que lleva al panel (para quien tenga guardada la direccion vieja).
+# Se ejecuta sola cada vez que cambia el panel en main, o a mano desde Actions.
 on:
   push:
     branches: [main]
     paths:
-      - 'lib/**'
       - 'admin/**'
-      - 'pubspec.yaml'
-      - 'pubspec.lock'
-      - 'logo.png'
-      - 'assets/**'
-      - 'icon.png'
+      - 'assets/marca/**'
       - 'web_extra/**'
       - '.github/workflows/web.yml'
   workflow_dispatch:
@@ -38,48 +33,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
-      - name: Generar carpeta web (preservando pubspec y lib)
+      - name: Juntar el panel
         run: |
-          cp pubspec.yaml /tmp/pubspec.yaml
-          cp -r lib /tmp/lib_backup
-          flutter create --platforms=web --project-name comandapp --org com.comandapp .
-          cp /tmp/pubspec.yaml pubspec.yaml
-          rm -rf lib && cp -r /tmp/lib_backup lib
-
-      - name: Nombre y colores de la pagina
-        run: |
-          sed -i 's#<title>comandapp</title>#<title>ComandApp</title>#' web/index.html
-          sed -i 's#content="comandapp"#content="ComandApp"#' web/index.html
-          sed -i 's#"name": "comandapp"#"name": "ComandApp"#; s#"short_name": "comandapp"#"short_name": "ComandApp"#' web/manifest.json
-          sed -i 's#"background_color": "[^"]*"#"background_color": "\#0D0D0D"#; s#"theme_color": "[^"]*"#"theme_color": "\#111111"#' web/manifest.json
-          sed -i 's#"description": "[^"]*"#"description": "Comandas, caja e inventario para restaurantes"#' web/manifest.json
-          grep -n "<title>" web/index.html
-          cat web/manifest.json | head -12
-
-      - name: Librerias
-        run: flutter pub get
-
-      - name: Icono de la pagina
-        continue-on-error: true
-        run: dart run flutter_launcher_icons -f web_extra/iconos_web.yaml
-
-      - name: Compilar la app para navegador (queda en /app/)
-        run: flutter build web --release --base-href "/${{ github.event.repository.name }}/app/" --no-tree-shake-icons
-
-      - name: Juntar panel y app
-        run: |
-          rm -rf _site && mkdir -p _site
+          rm -rf _site && mkdir -p _site/marca _site/app
           cp -r admin/. _site/
+          cp -r assets/marca/. _site/marca/
           cp logo.png _site/logo.png
-          mkdir -p _site/marca && cp -r assets/marca/. _site/marca/
-          cp -r build/web _site/app
-          ls -la _site _site/app | head -40
+          cp web_extra/app-retirada/index.html _site/app/index.html
+          ls -la _site _site/marca
 
       - name: Preparar publicacion
         uses: actions/upload-pages-artifact@v3

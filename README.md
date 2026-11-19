@@ -11,7 +11,7 @@ real entre los telefonos, la tableta de cocina y el panel web.
 
 1. **Codigo del negocio** (solo la primera vez en cada telefono; queda guardado). Ejemplo: `mi-restaurante`.
 2. **Quien eres**: aparece solo el personal activo de ese negocio.
-3. **PIN de 6 numeros** con el teclado en pantalla (o el teclado de la computadora en la version web).
+3. **PIN de 6 numeros** con el teclado en pantalla.
 
 El telefono queda **vinculado** a ese negocio: el personal no puede cambiarlo desde la entrada. Solo un
 administrador, ya dentro de la app, puede usar "Desvincular este dispositivo del negocio" (Administrador, al final
@@ -131,9 +131,12 @@ Direccion: **https://angelpitarch.github.io/comandapp/**
   Categorias, Inventario, Gastos, Anulaciones, Usuarios, Trabajadores, Configuracion y **Base de datos**
   (explorar, filtrar, editar, insertar y borrar filas de las tablas de Postgres, respetando las reglas RLS).
   Es HTML y JavaScript sin librerias ni compilacion; habla directo con Supabase.
-- **App para navegador** (`/app/`): la misma app Flutter, por ejemplo para usar la pantalla de cocina en un monitor.
-- Se publica sola con el workflow **Pagina web** cada vez que cambia `admin/` o `lib/` en `main`
-  (o a mano desde Actions → Pagina web → Run workflow). Los celulares siguen necesitando su `patch` o `release`.
+- **Donde trabaja cada quien:** meseros y cocina usan la app ComandApp en Android (telefono o tableta); la app ya no
+  se publica para navegador. El dueno usa este panel en la computadora (o en el navegador del telefono) y tambien puede
+  entrar a la app del telefono como administrador. Para la cocina se recomienda una tableta en la pared, o una cajita
+  Android TV conectada a un monitor con un raton. En `/app/` queda un aviso que lleva al panel.
+- Se publica sola con el workflow **Pagina web** cada vez que cambia `admin/` en `main`
+  (o a mano desde Actions → Pagina web → Run workflow). Los celulares necesitan su `patch` o `release`.
 - Activacion (una sola vez): Settings → Pages → Source: **GitHub Actions**.
 - Piezas en Supabase que usa el panel: `supabase/migrations/0010_panel_web.sql` (funcion `admin_esquema`, solo
   admin) y la funcion en la nube `supabase/functions/admin-usuarios` (crear usuarios con su acceso real,
@@ -169,7 +172,7 @@ supabase/migrations/                  Esquema, seguridad por rol, datos iniciale
 supabase/tests/prueba_roles.sql       Prueba de permisos por rol
 .github/workflows/build-apk.yml       Compilación del APK y parches Shorebird
 .github/workflows/revisar.yml         Revisa el codigo (flutter analyze) y deja una vista previa web en la rama vista-previa
-.github/workflows/web.yml             Publica el panel y la app web en GitHub Pages
+.github/workflows/web.yml             Publica el panel en GitHub Pages
 admin/                                Panel web de administracion (HTML + JavaScript, sin compilar)
 assets/marca, assets/fuentes          Logo, icono y fuente de ComandApp
 .github/workflows/backup.yml          Respaldo diario de la base de datos
