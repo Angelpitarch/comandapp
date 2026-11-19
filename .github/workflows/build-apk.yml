@@ -53,7 +53,7 @@ jobs:
           cp pubspec.yaml /tmp/pubspec.yaml
           cp -r lib /tmp/lib_backup
           cp shorebird.yaml /tmp/shorebird.yaml
-          flutter create --platforms=android --project-name comandas_app --org com.puestocomida .
+          flutter create --platforms=android --project-name comandapp --org com.comandapp .
           cp /tmp/pubspec.yaml pubspec.yaml
           rm -rf lib && cp -r /tmp/lib_backup lib
           cp /tmp/shorebird.yaml shorebird.yaml
@@ -82,7 +82,8 @@ jobs:
       - name: Nombre de la app
         run: |
           MANIFEST=android/app/src/main/AndroidManifest.xml
-          sed -i 's#android:label="comandas_app"#android:label="Comandas"#' "$MANIFEST"
+          sed -i 's#android:label="comandapp"#android:label="ComandApp"#' "$MANIFEST"
+          grep -n 'android:label' "$MANIFEST"
 
       - name: Canal de aviso emergente (comandas nuevas)
         run: |
@@ -117,7 +118,7 @@ jobs:
         if: ${{ inputs.accion == 'release' }}
         uses: actions/upload-artifact@v4
         with:
-          name: comandas-apk
+          name: comandapp-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 

@@ -1,4 +1,4 @@
-// Comandas - Puesto de Comida (Etapa 2A: nube en tiempo real con Supabase)
+// ComandApp - comandas, caja e inventario para restaurantes (nube en tiempo real con Supabase)
 // Un solo archivo. Datos compartidos entre dispositivos via Supabase.
 import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -7,6 +7,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // ====== CREDENCIALES DE SUPABASE (la key publishable es segura para el cliente) ======
 const kSupabaseUrl = 'https://tmjejukvdcfifajnmlca.supabase.co';
@@ -35,7 +36,7 @@ Future<void> main() async {
   } catch (e) {
     store.error = 'No se pudo conectar a la nube: $e';
   }
-  runApp(const ComandasApp());
+  runApp(const ComandApp());
 }
 
 SupabaseClient get sb => Supabase.instance.client;
@@ -316,7 +317,7 @@ class Store extends ChangeNotifier {
   String? error;
   bool connected = false;
   double rate = 36.5;
-  String businessName = 'Puesto de Comida';
+  String businessName = 'Mi negocio';
   List<Product> products = [];
   List<TableModel> tables = [];
   List<Ticket> tickets = [];
@@ -344,7 +345,7 @@ class Store extends ChangeNotifier {
     sb.from('app_config').stream(primaryKey: ['id']).listen((rows) {
       if (rows.isNotEmpty) {
         rate = ((rows.first['rate'] ?? 36.5) as num).toDouble();
-        businessName = (rows.first['business_name'] ?? 'Puesto de Comida') as String;
+        businessName = (rows.first['business_name'] ?? 'Mi negocio') as String;
         motivShown = (rows.first['motiv_shown'] ?? true) as bool;
         connected = true; notifyListeners();
       }
@@ -551,21 +552,30 @@ class Store extends ChangeNotifier {
     } catch (e) { debugPrint('unregisterPush: $e'); }
   }
 
+  String negocioNombre = '';
+  String negocioCodigo = '';
+  bool negocioSuspendido = false;
+
   Future<AppUser?> myProfile() async {
     try {
       final res = await sb.rpc('my_profile');
       if (res is List && res.isNotEmpty) {
         final r = res.first as Map;
+        negocioNombre = (r['negocio_nombre'] ?? '') as String;
+        negocioCodigo = (r['negocio_codigo'] ?? '') as String;
+        negocioSuspendido = r['negocio_activo'] == false;
+        if (negocioSuspendido) return null;
         return AppUser(id: r['id'] as String, name: (r['name'] ?? '') as String, role: (r['role'] ?? 'mesero') as String);
       }
     } catch (e) { _onErr(e); }
     return null;
   }
-  Future<List<Map<String, dynamic>>> loadStaff() async {
+  /// Personal activo del negocio con ese codigo. null = sin conexion; lista vacia = codigo no existe.
+  Future<List<Map<String, dynamic>>?> loadStaff(String codigo) async {
     try {
-      final res = await sb.from('public_staff').select();
+      final res = await sb.rpc('personal_del_negocio', params: <String, dynamic>{'p_codigo': codigo});
       return List<Map<String, dynamic>>.from(res as List);
-    } catch (e) { _onErr(e); return []; }
+    } catch (e) { debugPrint('personal: $e'); return null; }
   }
   /// Cambia el PIN del usuario que tiene la sesion abierta.
   /// Usa la funcion 'cambiar_pin' de Supabase (aplica al instante).
@@ -921,7 +931,85 @@ String hhmm(DateTime d) => '${two(d.hour)}:${two(d.minute)}';
 String fecha(DateTime d) => '${two(d.day)}/${two(d.month)}/${d.year}';
 
 // ======================= APP / TEMA =======================
-const kPrimary = Color(0xFFD84315);
+// Colores de la marca ComandApp (tomados del logo).
+const kAmber = Color(0xFFFCAC0C);   // ambar del logo: rellenos y acentos
+const kInk = Color(0xFF111111);     // negro del logo: barras y texto fuerte
+const kPrimary = Color(0xFFA05F00); // ambar tostado: texto e iconos sobre fondo claro (buen contraste)
+const kOk = Color(0xFF3E8E1E);      // verde (lechuga)
+const kBad = Color(0xFFC8352A);     // rojo (tomate)
+const kBg = Color(0xFFF5F4F1);
+const kLine = Color(0xFFE6E2DC);
+const kMuted = Color(0xFF6F6A63);
+
+ThemeData temaComandApp() {
+  const scheme = ColorScheme(
+    brightness: Brightness.light,
+    primary: kInk, onPrimary: Colors.white,
+    primaryContainer: kAmber, onPrimaryContainer: Color(0xFF231700),
+    secondary: kPrimary, onSecondary: Colors.white,
+    secondaryContainer: Color(0xFFFFEDC2), onSecondaryContainer: Color(0xFF2B1D00),
+    tertiary: kOk, onTertiary: Colors.white,
+    error: kBad, onError: Colors.white,
+    surface: Colors.white, onSurface: kInk,
+    surfaceContainerLowest: Colors.white, surfaceContainerLow: Color(0xFFFAF9F7),
+    surfaceContainer: Color(0xFFF3F1ED), surfaceContainerHigh: Color(0xFFEDEAE5), surfaceContainerHighest: Color(0xFFE6E2DC),
+    onSurfaceVariant: kMuted, outline: Color(0xFFCFCAC2), outlineVariant: kLine,
+  );
+  final round = RoundedRectangleBorder(borderRadius: BorderRadius.circular(14));
+  const btnText = TextStyle(fontFamily: 'Outfit', fontSize: 15.5, fontWeight: FontWeight.w600);
+  final base = ThemeData(useMaterial3: true, colorScheme: scheme, fontFamily: 'Outfit');
+  return base.copyWith(
+    scaffoldBackgroundColor: kBg,
+    appBarTheme: const AppBarTheme(
+      backgroundColor: kInk, foregroundColor: Colors.white, elevation: 0, scrolledUnderElevation: 0, centerTitle: false,
+      titleTextStyle: TextStyle(fontFamily: 'Outfit', fontSize: 20, fontWeight: FontWeight.w600, color: Colors.white),
+      iconTheme: IconThemeData(color: Colors.white), actionsIconTheme: IconThemeData(color: Colors.white),
+    ),
+    cardTheme: CardThemeData(
+      color: Colors.white, surfaceTintColor: Colors.transparent, elevation: 0, margin: const EdgeInsets.all(4),
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: const BorderSide(color: kLine)),
+    ),
+    filledButtonTheme: FilledButtonThemeData(style: FilledButton.styleFrom(minimumSize: const Size(64, 48), shape: round, textStyle: btnText)),
+    outlinedButtonTheme: OutlinedButtonThemeData(style: OutlinedButton.styleFrom(
+      minimumSize: const Size(64, 48), shape: round, textStyle: btnText, foregroundColor: kInk,
+      side: const BorderSide(color: Color(0xFFCFCAC2)))),
+    textButtonTheme: TextButtonThemeData(style: TextButton.styleFrom(foregroundColor: kPrimary, shape: round,
+      textStyle: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w600))),
+    floatingActionButtonTheme: const FloatingActionButtonThemeData(
+      backgroundColor: kAmber, foregroundColor: kInk, elevation: 2,
+      extendedTextStyle: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w700, fontSize: 15)),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true, fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFCFCAC2))),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFCFCAC2))),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: kInk, width: 1.6)),
+    ),
+    chipTheme: ChipThemeData(
+      selectedColor: const Color(0xFFFFEDC2), backgroundColor: Colors.white,
+      side: const BorderSide(color: Color(0xFFCFCAC2)), shape: const StadiumBorder(),
+      labelStyle: const TextStyle(fontFamily: 'Outfit', color: kInk)),
+    dialogTheme: DialogThemeData(
+      backgroundColor: Colors.white, surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      titleTextStyle: const TextStyle(fontFamily: 'Outfit', fontSize: 20, fontWeight: FontWeight.w700, color: kInk)),
+    bottomSheetTheme: const BottomSheetThemeData(
+      backgroundColor: Colors.white, surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24)))),
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating, backgroundColor: kInk,
+      contentTextStyle: const TextStyle(fontFamily: 'Outfit', color: Colors.white),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+    listTileTheme: const ListTileThemeData(iconColor: kMuted),
+    dividerTheme: const DividerThemeData(color: kLine, space: 24),
+    progressIndicatorTheme: const ProgressIndicatorThemeData(color: kAmber),
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith((st) => st.contains(WidgetState.selected) ? kInk : null),
+      trackColor: WidgetStateProperty.resolveWith((st) => st.contains(WidgetState.selected) ? kAmber : null),
+    ),
+  );
+}
 
 Widget _homeForRole(String role) =>
     role == 'admin' ? const AdminScreen() : (role == 'cocina' ? const KitchenScreen() : const TablesScreen());
@@ -933,32 +1021,28 @@ void _logout(BuildContext context) {
   Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (r) => false);
 }
 
-class ComandasApp extends StatelessWidget {
-  const ComandasApp({super.key});
+class ComandApp extends StatelessWidget {
+  const ComandApp({super.key});
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Comandas',
+      title: 'ComandApp',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: kPrimary, primary: kPrimary),
-        scaffoldBackgroundColor: const Color(0xFFFFF8F3),
-        appBarTheme: const AppBarTheme(backgroundColor: kPrimary, foregroundColor: Colors.white),
-      ),
+      theme: temaComandApp(),
       home: const LoginScreen(),
       builder: (context, child) => AnimatedBuilder(
         animation: store,
         builder: (_, __) => Stack(children: [
           Positioned.fill(child: child ?? const SizedBox()),
           if (store.error != null)
-            Positioned(left: 0, right: 0, bottom: 0, child: SafeArea(
-              child: Material(color: Colors.red.shade700, child: InkWell(
+            Positioned(left: 12, right: 12, bottom: 12, child: SafeArea(
+              child: Material(color: kBad, borderRadius: BorderRadius.circular(14), child: InkWell(
+                borderRadius: BorderRadius.circular(14),
                 onTap: store.clearError,
-                child: Padding(padding: const EdgeInsets.all(10), child: Row(children: [
+                child: Padding(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12), child: Row(children: [
                   const Icon(Icons.wifi_off, color: Colors.white, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(store.error!, style: const TextStyle(color: Colors.white, fontSize: 12))),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(store.error!, style: const TextStyle(color: Colors.white, fontSize: 13))),
                   const Icon(Icons.close, color: Colors.white, size: 18),
                 ])),
               )),
@@ -970,14 +1054,14 @@ class ComandasApp extends StatelessWidget {
 }
 
 Color statusColor(String s) => switch (s) {
-      'disponible' => const Color(0xFF66BB6A),
-      'ocupada' => const Color(0xFFFFA726),
-      'cocina' => const Color(0xFF42A5F5),
-      'listo' => const Color(0xFF26C6DA),
-      'servido' => const Color(0xFFAB47BC),
-      'pago_espera' => const Color(0xFFEF6C00),
-      'pago_servido' => const Color(0xFF6D4C41),
-      _ => const Color(0xFF90A4AE),
+      'disponible' => kOk,
+      'ocupada' => const Color(0xFFE09400),
+      'cocina' => const Color(0xFF2F6FDB),
+      'listo' => const Color(0xFF0E9F8E),
+      'servido' => const Color(0xFF7C4DCC),
+      'pago_espera' => const Color(0xFFE8590C),
+      'pago_servido' => const Color(0xFF6B5B4E),
+      _ => const Color(0xFF8A8F98),
     };
 String statusLabel(String s) => switch (s) {
       'disponible' => 'Disponible',
@@ -1003,7 +1087,14 @@ Widget lowStockCard() {
     ])));
 }
 
-// ======================= LOGIN =======================
+// ======================= ENTRADA =======================
+// 1) codigo del negocio (se recuerda en este telefono)  2) quien eres  3) PIN
+const kLoginBg = Color(0xFF0D0D0D);
+const kLoginCard = Color(0xFF1B1B1B);
+const kLoginErr = Color(0xFFFF8A80);
+const kPrefCodigo = 'negocio_codigo';
+const kRoles = {'admin': 'Administrador', 'mesero': 'Mesero / Cajero', 'cocina': 'Cocina'};
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
   @override
@@ -1013,20 +1104,69 @@ class _LoginScreenState extends State<LoginScreen> {
   String _pin = '';
   String? _err;
   bool _checking = false;
-  bool _loadingStaff = true;
+  bool _loading = true;
+  String? _codigo;          // codigo del negocio guardado en este telefono
+  String _negocio = '';     // nombre del negocio
   List<Map<String, dynamic>> _staff = [];
   Map<String, dynamic>? _sel;
+  final _codigoCtrl = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _cargarStaff();
+    _arrancar();
+  }
+
+  @override
+  void dispose() {
+    _codigoCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _arrancar() async {
+    String? c;
+    try { c = (await SharedPreferences.getInstance()).getString(kPrefCodigo); } catch (_) {}
+    if (!mounted) return;
+    if (c == null || c.isEmpty) { setState(() => _loading = false); return; }
+    _codigo = c;
+    await _cargarStaff();
   }
 
   Future<void> _cargarStaff() async {
-    final s = await store.loadStaff();
+    final codigo = _codigo;
+    if (codigo == null) return;
+    setState(() { _loading = true; _err = null; });
+    final s = await store.loadStaff(codigo);
     if (!mounted) return;
-    setState(() { _staff = s; _loadingStaff = false; });
+    setState(() {
+      _loading = false;
+      if (s == null) {
+        _err = 'Sin conexion. Revisa internet e intenta de nuevo.';
+      } else {
+        _staff = s;
+        _negocio = s.isNotEmpty ? (s.first['negocio_nombre'] ?? '') as String : '';
+        if (s.isEmpty) _err = 'No encontramos un negocio activo con el codigo "$codigo".';
+      }
+    });
+  }
+
+  Future<void> _usarCodigo() async {
+    final c = _codigoCtrl.text.trim().toLowerCase();
+    if (c.isEmpty) { setState(() => _err = 'Escribe el codigo de tu negocio'); return; }
+    setState(() { _loading = true; _err = null; });
+    final s = await store.loadStaff(c);
+    if (!mounted) return;
+    if (s == null) { setState(() { _loading = false; _err = 'Sin conexion. Revisa internet e intenta de nuevo.'; }); return; }
+    if (s.isEmpty) { setState(() { _loading = false; _err = 'No encontramos un negocio activo con ese codigo.'; }); return; }
+    try { await (await SharedPreferences.getInstance()).setString(kPrefCodigo, c); } catch (_) {}
+    if (!mounted) return;
+    setState(() { _codigo = c; _staff = s; _negocio = (s.first['negocio_nombre'] ?? '') as String; _loading = false; });
+  }
+
+  Future<void> _cambiarNegocio() async {
+    try { await (await SharedPreferences.getInstance()).remove(kPrefCodigo); } catch (_) {}
+    if (!mounted) return;
+    setState(() { _codigo = null; _staff = []; _sel = null; _pin = ''; _err = null; _codigoCtrl.text = ''; });
   }
 
   void _tap(String d) {
@@ -1044,7 +1184,11 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _checking = false);
     if (!ok || me == null) {
       if (ok) { sb.auth.signOut(); }
-      setState(() { _err = ok ? 'Tu usuario no tiene permisos' : 'PIN incorrecto'; _pin = ''; });
+      setState(() {
+        _err = !ok ? 'PIN incorrecto'
+            : (store.negocioSuspendido ? 'Este negocio no esta activo. Contacta a ComandApp.' : 'Tu usuario no tiene permisos');
+        _pin = '';
+      });
       return;
     }
     store.currentUser = me.name;
@@ -1064,55 +1208,124 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(child: Center(child: SingleChildScrollView(child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
-        child: Padding(padding: const EdgeInsets.all(24),
-          child: _sel == null ? _listaPersonal() : _pinPad()),
-      )))),
+    final t = Theme.of(context);
+    final paso = _codigo == null ? 'codigo' : (_sel == null ? 'personal' : 'pin');
+    return Theme(
+      data: t.copyWith(
+        colorScheme: t.colorScheme.copyWith(primary: kAmber, onPrimary: kInk),
+        textButtonTheme: TextButtonThemeData(style: TextButton.styleFrom(foregroundColor: kAmber)),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true, fillColor: kLoginCard,
+          hintStyle: const TextStyle(color: Colors.white38),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: kAmber, width: 1.6)),
+        ),
+      ),
+      child: Scaffold(
+        backgroundColor: kLoginBg,
+        body: SafeArea(child: Center(child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 400),
+            child: DefaultTextStyle.merge(
+              style: const TextStyle(color: Colors.white),
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 220),
+                child: KeyedSubtree(
+                  key: ValueKey(paso),
+                  child: paso == 'codigo' ? _pasoCodigo() : (paso == 'personal' ? _listaPersonal() : _pinPad()),
+                ),
+              ),
+            ),
+          ),
+        ))),
+      ),
     );
   }
 
-  // Logo de la app, con esquinas redondeadas y sombra suave.
-  Widget _logo(double s) => Container(
-        width: s, height: s,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(s * 0.23),
-          boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 14, offset: Offset(0, 5))],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(s * 0.23),
-          child: Image.asset('logo.png', width: s, height: s, fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => Icon(Icons.lunch_dining, size: s * 0.7, color: kPrimary)),
-        ),
-      );
+  Widget _simbolo(double ancho) => Image.asset('assets/marca/simbolo.png', width: ancho, fit: BoxFit.contain,
+      errorBuilder: (_, __, ___) => Icon(Icons.lunch_dining, size: ancho * 0.6, color: kAmber));
 
-  Widget _listaPersonal() => Column(mainAxisSize: MainAxisSize.min, children: [
-        _logo(92),
-        const SizedBox(height: 14),
-        const Text('Comandas', style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold)),
-        const Text('Selecciona tu usuario'),
-        const SizedBox(height: 20),
-        if (_loadingStaff)
-          const Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator())
-        else if (_staff.isEmpty)
-          Column(children: [
-            const Padding(padding: EdgeInsets.all(12),
-              child: Text('No se pudo cargar la lista de usuarios.\nRevisa la conexion.',
-                textAlign: TextAlign.center, style: TextStyle(color: Colors.red))),
-            OutlinedButton.icon(onPressed: () { setState(() => _loadingStaff = true); _cargarStaff(); },
-              icon: const Icon(Icons.refresh), label: const Text('Reintentar')),
-          ])
-        else
-          for (final s in _staff)
-            Padding(padding: const EdgeInsets.only(bottom: 8), child: SizedBox(width: double.infinity, height: 56,
-              child: FilledButton.tonalIcon(
-                onPressed: () => setState(() { _sel = s; _pin = ''; _err = null; }),
-                icon: Icon(((s['role'] ?? '') as String) == 'admin'
-                    ? Icons.admin_panel_settings
-                    : (((s['role'] ?? '') as String) == 'cocina' ? Icons.soup_kitchen : Icons.room_service)),
-                label: Text((s['name'] ?? '') as String, style: const TextStyle(fontSize: 16))))),
+  Widget _pasoCodigo() => Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Center(child: _simbolo(170)),
+        const SizedBox(height: 12),
+        Center(child: Image.asset('assets/marca/texto.png', width: 200,
+          errorBuilder: (_, __, ___) => const Text('ComandApp', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w700)))),
+        const SizedBox(height: 40),
+        const Text('Bienvenido', textAlign: TextAlign.center, style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 6),
+        const Text('Escribe el codigo de tu negocio. Solo se pide la primera vez en este dispositivo.',
+            textAlign: TextAlign.center, style: TextStyle(color: Colors.white70, height: 1.35)),
+        const SizedBox(height: 24),
+        TextField(
+          controller: _codigoCtrl,
+          autocorrect: false,
+          enableSuggestions: false,
+          textInputAction: TextInputAction.go,
+          style: const TextStyle(color: Colors.white, fontSize: 17),
+          decoration: const InputDecoration(hintText: 'ej: mi-restaurante',
+              prefixIcon: Icon(Icons.storefront_outlined, color: Colors.white54)),
+          onSubmitted: (_) => _usarCodigo(),
+        ),
+        SizedBox(height: 44, child: Center(child: Text(_err ?? '', textAlign: TextAlign.center, style: const TextStyle(color: kLoginErr)))),
+        SizedBox(height: 54, child: FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: kAmber, foregroundColor: kInk,
+              textStyle: const TextStyle(fontFamily: 'Outfit', fontSize: 17, fontWeight: FontWeight.w700)),
+          onPressed: _loading ? null : _usarCodigo,
+          child: _loading
+              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: kInk))
+              : const Text('Continuar'),
+        )),
       ]);
+
+  Widget _listaPersonal() => Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Center(child: _simbolo(110)),
+        const SizedBox(height: 18),
+        Text(_negocio.isEmpty ? 'Tu negocio' : _negocio, textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 4),
+        const Text('Toca tu nombre para entrar', textAlign: TextAlign.center, style: TextStyle(color: Colors.white70)),
+        const SizedBox(height: 22),
+        if (_loading)
+          const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator(color: kAmber)))
+        else if (_staff.isEmpty) ...[
+          Text(_err ?? 'No hay personal activo en este negocio.', textAlign: TextAlign.center, style: const TextStyle(color: kLoginErr)),
+          const SizedBox(height: 14),
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Colors.white24)),
+            onPressed: _cargarStaff, icon: const Icon(Icons.refresh), label: const Text('Reintentar')),
+        ] else
+          for (final p in _staff) _personaTile(p),
+        const SizedBox(height: 10),
+        Center(child: TextButton.icon(onPressed: _cambiarNegocio,
+            icon: const Icon(Icons.swap_horiz, size: 18), label: const Text('Cambiar de negocio'))),
+      ]);
+
+  Widget _personaTile(Map<String, dynamic> p) {
+    final name = ((p['name'] ?? '') as String).trim();
+    final role = (p['role'] ?? '') as String;
+    final partes = name.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).take(2);
+    final ini = partes.isEmpty ? '?' : partes.map((w) => w[0].toUpperCase()).join();
+    return Padding(padding: const EdgeInsets.only(bottom: 10), child: Material(
+      color: kLoginCard, borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: () => setState(() { _sel = p; _pin = ''; _err = null; }),
+        child: Padding(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12), child: Row(children: [
+          CircleAvatar(radius: 22, backgroundColor: kAmber, foregroundColor: kInk,
+              child: Text(ini, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16))),
+          const SizedBox(width: 14),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(name.isEmpty ? 'Sin nombre' : name, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: Colors.white)),
+            Text(kRoles[role] ?? role, style: const TextStyle(fontSize: 13, color: Colors.white60)),
+          ])),
+          const Icon(Icons.chevron_right, color: Colors.white38),
+        ])),
+      ),
+    ));
+  }
 
   // En computadora se puede escribir el PIN con el teclado: numeros, borrar y Enter.
   KeyEventResult _tecla(FocusNode _, KeyEvent e) {
@@ -1125,39 +1338,54 @@ class _LoginScreenState extends State<LoginScreen> {
     return KeyEventResult.ignored;
   }
 
-  Widget _pinPad() => Focus(autofocus: true, onKeyEvent: _tecla, child: Column(mainAxisSize: MainAxisSize.min, children: [
-        _logo(64),
-        const SizedBox(height: 10),
-        Text((_sel?['name'] ?? '') as String, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-        TextButton.icon(
-          onPressed: _checking ? null : () => setState(() { _sel = null; _pin = ''; _err = null; }),
-          icon: const Icon(Icons.arrow_back, size: 16), label: const Text('Cambiar usuario')),
-        const Text('Ingresa tu PIN'),
-        const SizedBox(height: 12),
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: List.generate(6, (i) => Container(
-              margin: const EdgeInsets.symmetric(horizontal: 8), width: 18, height: 18,
-              decoration: BoxDecoration(shape: BoxShape.circle,
-                  color: i < _pin.length ? kPrimary : Colors.transparent,
-                  border: Border.all(color: kPrimary, width: 2))))),
-        SizedBox(height: 24, child: _checking
-            ? const Center(child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)))
-            : Text(_err ?? '', style: const TextStyle(color: Colors.red))),
-        _keypad(),
-        // PIN antiguo de 4 o 5 numeros: se entra con este boton y la app pide crear uno de 6.
-        SizedBox(height: 40, child: (_pin.length >= 4 && _pin.length < 6 && !_checking)
-            ? TextButton(onPressed: _validate, child: const Text('Entrar con PIN de 4 numeros'))
-            : null),
-      ]));
+  Widget _pinPad() {
+    final name = ((_sel?['name'] ?? '') as String).trim();
+    return Focus(autofocus: true, onKeyEvent: _tecla, child: Column(mainAxisSize: MainAxisSize.min, children: [
+      _simbolo(84),
+      const SizedBox(height: 14),
+      Text(name.isEmpty ? 'Hola' : 'Hola, $name', textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
+      const SizedBox(height: 4),
+      const Text('Ingresa tu PIN de 6 numeros', style: TextStyle(color: Colors.white70)),
+      const SizedBox(height: 22),
+      Row(mainAxisAlignment: MainAxisAlignment.center, children: List.generate(6, (i) => AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            margin: const EdgeInsets.symmetric(horizontal: 7), width: 16, height: 16,
+            decoration: BoxDecoration(shape: BoxShape.circle,
+                color: i < _pin.length ? kAmber : Colors.transparent,
+                border: Border.all(color: i < _pin.length ? kAmber : Colors.white30, width: 2))))),
+      SizedBox(height: 44, child: Center(child: _checking
+          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: kAmber))
+          : Text(_err ?? '', textAlign: TextAlign.center, style: const TextStyle(color: kLoginErr)))),
+      _keypad(),
+      // PIN antiguo de 4 o 5 numeros: se entra con este boton y la app pide crear uno de 6.
+      SizedBox(height: 44, child: (_pin.length >= 4 && _pin.length < 6 && !_checking)
+          ? TextButton(onPressed: _validate, child: const Text('Entrar con PIN de 4 numeros'))
+          : null),
+      TextButton.icon(
+        onPressed: _checking ? null : () => setState(() { _sel = null; _pin = ''; _err = null; }),
+        icon: const Icon(Icons.arrow_back, size: 18), label: const Text('No soy yo')),
+    ]));
+  }
 
-  Widget _k(String label, {VoidCallback? action, Widget? child}) => Padding(padding: const EdgeInsets.all(6),
-      child: SizedBox(width: 72, height: 62, child: FilledButton.tonal(onPressed: action ?? () => _tap(label),
-          child: child ?? Text(label, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w600)))));
+  Widget _k(String label, {VoidCallback? action, Widget? child}) => Padding(
+        padding: const EdgeInsets.all(7),
+        child: SizedBox(width: 76, height: 64, child: Material(
+          color: kLoginCard, borderRadius: BorderRadius.circular(20),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: _checking ? null : (action ?? () => _tap(label)),
+            child: Center(child: child ?? Text(label,
+                style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w600, color: Colors.white))),
+          ),
+        )),
+      );
   Widget _keypad() => Column(children: [
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [_k('1'), _k('2'), _k('3')]),
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [_k('4'), _k('5'), _k('6')]),
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [_k('7'), _k('8'), _k('9')]),
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [const SizedBox(width: 84), _k('0'),
-            _k('', action: _back, child: const Icon(Icons.backspace_outlined))]),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [const SizedBox(width: 90), _k('0'),
+            _k('', action: _back, child: const Icon(Icons.backspace_outlined, color: Colors.white70))]),
       ]);
 }
 
@@ -1171,7 +1399,7 @@ class TablesScreen extends StatelessWidget {
     showDialog<void>(context: context, builder: (dctx) => AlertDialog(
       title: const Text('Nuevo pedido para llevar'),
       content: TextField(controller: ctrl, autofocus: true,
-        decoration: const InputDecoration(labelText: 'Nombre del cliente', border: OutlineInputBorder())),
+        decoration: const InputDecoration(labelText: 'Nombre del cliente')),
       actions: [
         TextButton(onPressed: () => Navigator.pop(dctx), child: const Text('Cancelar')),
         FilledButton(onPressed: () async {
@@ -1309,7 +1537,7 @@ class TableDetailScreen extends StatelessWidget {
     final ctrl = TextEditingController();
     showDialog<void>(context: context, builder: (dctx) => AlertDialog(
       title: const Text('Pedido para llevar'),
-      content: TextField(controller: ctrl, autofocus: true, decoration: const InputDecoration(labelText: 'Nombre del cliente', border: OutlineInputBorder())),
+      content: TextField(controller: ctrl, autofocus: true, decoration: const InputDecoration(labelText: 'Nombre del cliente')),
       actions: [
         TextButton(onPressed: () => Navigator.pop(dctx), child: const Text('Cancelar')),
         FilledButton(onPressed: () async {
@@ -1502,7 +1730,7 @@ class _OrderScreenState extends State<OrderScreen> {
                         onTap: () => _addOrEdit(it.p, existing: it))),
                 ]))
               else const Padding(padding: EdgeInsets.all(8), child: Text('Agrega productos del menu', style: TextStyle(color: Colors.grey))),
-              TextField(controller: _noteCtrl, decoration: const InputDecoration(isDense: true, labelText: 'Observacion general', hintText: 'Ej: entregar bebidas primero', border: OutlineInputBorder(), prefixIcon: Icon(Icons.sticky_note_2_outlined))),
+              TextField(controller: _noteCtrl, decoration: const InputDecoration(isDense: true, labelText: 'Observacion general', hintText: 'Ej: entregar bebidas primero', prefixIcon: Icon(Icons.sticky_note_2_outlined))),
               const SizedBox(height: 10),
               Row(children: [const Text('Total', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)), const Spacer(), Text(dualUsd(total), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold))]),
               const SizedBox(height: 8),
@@ -1611,7 +1839,7 @@ class _ItemEditorState extends State<ItemEditor> {
               Wrap(spacing: 8, children: [for (final ing in p.quita) FilterChip(label: Text('Sin $ing'), selected: _quita.contains(ing), onSelected: (v) => setState(() => v ? _quita.add(ing) : _quita.remove(ing)))]),
               const SizedBox(height: 16),
             ],
-            TextField(controller: _note, maxLines: 2, decoration: const InputDecoration(labelText: 'Observacion del producto', border: OutlineInputBorder())),
+            TextField(controller: _note, maxLines: 2, decoration: const InputDecoration(labelText: 'Observacion del producto')),
           ])),
           SafeArea(top: false, child: Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 12), child: Row(children: [
             Container(decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade400), borderRadius: BorderRadius.circular(10)),
@@ -1762,7 +1990,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   Wrap(spacing: 6, children: [for (final m in store.methods) ChoiceChip(label: Text(m, style: const TextStyle(fontSize: 12)), selected: (_method[i] ?? store.methods.first) == m, onSelected: (_) => setState(() => _method[i] = m))]),
                   const SizedBox(height: 8),
                   TextField(controller: _refFor(i), style: const TextStyle(fontSize: 13),
-                    decoration: const InputDecoration(isDense: true, labelText: 'Referencia bancaria (opcional)', border: OutlineInputBorder(), prefixIcon: Icon(Icons.confirmation_number_outlined))),
+                    decoration: const InputDecoration(isDense: true, labelText: 'Referencia bancaria (opcional)', prefixIcon: Icon(Icons.confirmation_number_outlined))),
                 ]))),
           ])),
           SafeArea(top: false, child: Padding(padding: const EdgeInsets.all(12),
@@ -1852,14 +2080,18 @@ class _KitchenScreenState extends State<KitchenScreen> {
     setState(() => _flash = true);
     Future.delayed(const Duration(milliseconds: 1500), () { if (mounted) setState(() => _flash = false); });
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-      content: Text('NUEVA COMANDA', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-      backgroundColor: Color(0xFFD84315), duration: Duration(seconds: 3)));
+      content: Row(children: [Icon(Icons.notifications_active, color: kInk), SizedBox(width: 10),
+        Text('NUEVA COMANDA', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: kInk))]),
+      backgroundColor: kAmber, duration: Duration(seconds: 3)));
   }
   String _elapsed(DateTime d) {
     final s = DateTime.now().difference(d);
     return '${(s.inMinutes).toString().padLeft(2, '0')}:${(s.inSeconds % 60).toString().padLeft(2, '0')}';
   }
-  Color _c(String s) => switch (s) { 'nueva' => const Color(0xFF42A5F5), 'preparando' => const Color(0xFFFFA726), 'lista' => const Color(0xFF66BB6A), _ => Colors.grey };
+  Color _c(String s) => switch (s) { 'nueva' => const Color(0xFF2F6FDB), 'preparando' => kAmber, 'lista' => kOk, _ => Colors.grey };
+  // texto sobre el color del estado (el ambar lleva texto negro para que se lea bien)
+  Color _fg(String s) => s == 'preparando' ? kInk : Colors.white;
+  String _estado(String s) => switch (s) { 'nueva' => 'NUEVA', 'preparando' => 'PREPARANDO', 'lista' => 'LISTA', _ => s.toUpperCase() };
 
   void _anular(Ticket t) {
     final reasonCtrl = TextEditingController();
@@ -1869,7 +2101,7 @@ class _KitchenScreenState extends State<KitchenScreen> {
       return AlertDialog(
         title: Text('Anular comanda #' + t.number.toString().padLeft(6, '0')),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(controller: reasonCtrl, maxLines: 2, decoration: const InputDecoration(labelText: 'Motivo de la anulacion', border: OutlineInputBorder())),
+          TextField(controller: reasonCtrl, maxLines: 2, decoration: const InputDecoration(labelText: 'Motivo de la anulacion')),
           SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Se uso la mercancia?'),
             subtitle: const Text('Si los alimentos ya se prepararon o gastaron'),
             value: usada, onChanged: (v) => setD(() => usada = v)),
@@ -1889,8 +2121,8 @@ class _KitchenScreenState extends State<KitchenScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _flash ? const Color(0xFFEF6C00) : const Color(0xFF263238),
-      appBar: AppBar(title: const Text('Cocina - Comandas'), actions: [
+      backgroundColor: _flash ? const Color(0xFF5A3D00) : kLoginBg,
+      appBar: AppBar(title: const Text('Cocina'), actions: [
         IconButton(tooltip: 'Cambiar mi PIN', icon: const Icon(Icons.lock_reset, color: Colors.white),
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChangePinScreen()))),
         IconButton(tooltip: 'Salir', icon: const Icon(Icons.logout, color: Colors.white), onPressed: () => _logout(context)),
@@ -1901,7 +2133,15 @@ class _KitchenScreenState extends State<KitchenScreen> {
           WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _alertNueva(); });
         }
         _lastCount = list.length;
-        if (list.isEmpty) return const Center(child: Text('Sin comandas pendientes', style: TextStyle(color: Colors.white70, fontSize: 18)));
+        if (list.isEmpty) {
+          return const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.check_circle_outline, color: Colors.white24, size: 64),
+            SizedBox(height: 12),
+            Text('Sin comandas pendientes', style: TextStyle(color: Colors.white70, fontSize: 18, fontWeight: FontWeight.w600)),
+            SizedBox(height: 4),
+            Text('Las nuevas apareceran aqui con un aviso', style: TextStyle(color: Colors.white38, fontSize: 13)),
+          ]));
+        }
         return LayoutBuilder(builder: (context, cns) {
           final cols = (cns.maxWidth / 300).floor().clamp(1, 5).toInt();
           return GridView.builder(
@@ -1911,18 +2151,26 @@ class _KitchenScreenState extends State<KitchenScreen> {
             itemBuilder: (context, i) {
               final t = list[i];
               final c = _c(t.status);
-              return Card(color: Colors.white, child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                Container(color: c, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), child: Row(children: [
-                  Text('#${t.number.toString().padLeft(6, '0')}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                  const Spacer(), const Icon(Icons.timer, color: Colors.white, size: 15), const SizedBox(width: 3),
-                  Text(_elapsed(t.sentAt), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+              final fg = _fg(t.status);
+              return Card(color: Colors.white, clipBehavior: Clip.antiAlias,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Container(color: c, padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10), child: Row(children: [
+                  Text('#${t.number.toString().padLeft(6, '0')}', style: TextStyle(color: fg, fontWeight: FontWeight.w800, fontSize: 16)),
+                  const SizedBox(width: 8),
+                  Text(_estado(t.status), style: TextStyle(color: fg.withOpacity(0.8), fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.6)),
+                  const Spacer(), Icon(Icons.timer_outlined, color: fg, size: 16), const SizedBox(width: 4),
+                  Text(_elapsed(t.sentAt), style: TextStyle(color: fg, fontWeight: FontWeight.w700, fontFeatures: const [FontFeature.tabularFigures()])),
                 ])),
-                Padding(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), child: Row(children: [
-                  Text(t.table != null ? 'MESA ${t.table}' : (t.takeawayName != null ? 'LLEVAR - ${t.takeawayName}' : 'PARA LLEVAR'), style: const TextStyle(fontWeight: FontWeight.bold)),
-                  const Spacer(),
-                  if (t.adicion) Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), color: Colors.amber, child: const Text('ADICION', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold))),
+                Padding(padding: const EdgeInsets.fromLTRB(14, 10, 14, 2), child: Row(children: [
+                  Expanded(child: Text(t.table != null ? 'MESA ${t.table}' : (t.takeawayName != null ? 'LLEVAR - ${t.takeawayName}' : 'PARA LLEVAR'),
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17))),
+                  if (t.adicion) Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(color: kAmber, borderRadius: BorderRadius.circular(99)),
+                      child: const Text('ADICION', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: kInk))),
                 ])),
-                Text(t.waiter, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.grey[700])),
+                Padding(padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: Text(t.waiter, style: const TextStyle(fontSize: 12.5, color: kMuted))),
                 const Divider(height: 10),
                 Expanded(child: ListView(padding: const EdgeInsets.symmetric(horizontal: 12), children: [
                   for (final l in t.lines) ...[
@@ -1944,7 +2192,7 @@ class _KitchenScreenState extends State<KitchenScreen> {
                     IconButton(tooltip: 'Anular', icon: const Icon(Icons.cancel, color: Colors.red), onPressed: () => _anular(t)),
                 ]),
                 Padding(padding: const EdgeInsets.fromLTRB(8, 0, 8, 8), child: SizedBox(width: double.infinity, child: FilledButton(
-                  style: FilledButton.styleFrom(backgroundColor: c), onPressed: () => store.advance(t),
+                  style: FilledButton.styleFrom(backgroundColor: c, foregroundColor: fg), onPressed: () => store.advance(t),
                   child: Text(switch (t.status) { 'nueva' => 'Empezar a preparar', 'preparando' => 'Marcar lista', 'lista' => 'Marcar entregada', _ => t.status })))),
               ]));
             },
@@ -1968,7 +2216,8 @@ class _AdminScreenState extends State<AdminScreen> {
   void _syncRate() { if (!_rateFocus.hasFocus) _rate.text = store.rate.toStringAsFixed(2); }
   bool _motivDone = false;
   void _checkMotiv() {
-    if (_motivDone || store.motivShown || !mounted) return;
+    // Mensaje personal del fundador: solo en su propio negocio, nunca en los de clientes.
+    if (_motivDone || store.motivShown || !mounted || store.negocioCodigo != 'puesto-de-comida') return;
     _motivDone = true;
     store.markMotivShown();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -2050,123 +2299,178 @@ class _AdminScreenState extends State<AdminScreen> {
   void initState() { super.initState(); _rate.text = store.rate.toStringAsFixed(2); _bizName.text = store.businessName; store.addListener(_syncRate); store.addListener(_checkMotiv); WidgetsBinding.instance.addPostFrameCallback((_) => _checkMotiv()); }
   @override
   void dispose() { store.removeListener(_syncRate); store.removeListener(_checkMotiv); _rateFocus.dispose(); _rate.dispose(); _bizName.dispose(); super.dispose(); }
+  void _ir(Widget w) => Navigator.push(context, MaterialPageRoute(builder: (_) => w));
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Administrador'), actions: [
         IconButton(tooltip: 'Cambiar mi PIN', icon: const Icon(Icons.lock_reset),
-          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChangePinScreen()))),
+          onPressed: () => _ir(const ChangePinScreen())),
         IconButton(tooltip: 'Salir', icon: const Icon(Icons.logout), onPressed: () => _logout(context)),
       ]),
-      body: AnimatedBuilder(animation: store, builder: (context, _) => ListView(padding: const EdgeInsets.all(16), children: [
-        const Text('Nombre del negocio', style: TextStyle(fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        Card(child: Padding(padding: const EdgeInsets.all(14), child: Row(children: [
-          Expanded(child: TextField(controller: _bizName,
-            decoration: const InputDecoration(labelText: 'Sale en los comprobantes', isDense: true, border: OutlineInputBorder()))),
-          const SizedBox(width: 8),
-          FilledButton(onPressed: () async {
-            final n = _bizName.text.trim();
-            if (n.isEmpty) return;
-            await store.setBusinessName(n);
-            if (!context.mounted) return;
-            FocusScope.of(context).unfocus();
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nombre actualizado')));
-          }, child: const Text('Guardar')),
-        ]))),
-        const SizedBox(height: 16),
-        const Text('Tasa de cambio (Bs por 1 USD)', style: TextStyle(fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        Card(child: Padding(padding: const EdgeInsets.all(14), child: Row(children: [
-          const Text('1 USD =  ', style: TextStyle(fontWeight: FontWeight.bold)),
-          Expanded(child: TextField(controller: _rate, focusNode: _rateFocus, keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(suffixText: 'Bs', isDense: true, border: OutlineInputBorder()))),
-          const SizedBox(width: 8),
-          FilledButton(onPressed: () async {
-            final v = double.tryParse(_rate.text.replaceAll(',', '.'));
-            if (v != null && v > 0) {
-              await store.setRate(v);
+      body: AnimatedBuilder(animation: store, builder: (context, _) => Center(child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 900),
+        child: ListView(padding: const EdgeInsets.fromLTRB(16, 16, 16, 32), children: [
+        _resumenHoy(),
+        const SizedBox(height: 14),
+        if (store.lowStock.isNotEmpty) ...[lowStockCard(), const SizedBox(height: 14)],
+        _seccion('Ventas y caja', [
+          _Atajo(Icons.today_outlined, 'Historial de hoy', () => _ir(const HistoryScreen())),
+          _Atajo(Icons.calendar_month_outlined, 'Historial de dias', () => _ir(const HistoryDaysScreen())),
+          _Atajo(Icons.bar_chart_rounded, 'Reportes', () => _ir(const ReportesScreen())),
+          _Atajo(Icons.trending_up_rounded, 'Rentabilidad', () => _ir(const RentabilidadScreen())),
+          _Atajo(Icons.receipt_long_outlined, 'Gastos', () => _ir(const GastosScreen())),
+          _Atajo(Icons.money_off_rounded, 'Anulaciones', () => _ir(const CancellationsScreen())),
+        ]),
+        _seccion('Menu e inventario', [
+          _Atajo(Icons.add_circle_outline, 'Nuevo producto', () => _ir(const ProductForm())),
+          _Atajo(Icons.category_outlined, 'Categorias', () => _ir(const CategoriesScreen())),
+          _Atajo(Icons.inventory_2_outlined, 'Inventario', () => _ir(const InventoryScreen())),
+        ]),
+        _seccion('Equipo y operacion', [
+          _Atajo(Icons.badge_outlined, 'Trabajadores', () => _ir(const EmployeesScreen())),
+          _Atajo(Icons.manage_accounts_outlined, 'Usuarios', () => _ir(const UsersScreen())),
+          _Atajo(Icons.table_bar_outlined, 'Mesas', () => _ir(const TablesScreen())),
+          _Atajo(Icons.soup_kitchen_outlined, 'Cocina', () => _ir(const KitchenScreen())),
+        ]),
+        _titulo('Ajustes del negocio'),
+        Card(child: Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 16), child: Column(children: [
+          Row(children: [
+            Expanded(child: TextField(controller: _bizName,
+              decoration: const InputDecoration(labelText: 'Nombre del negocio', helperText: 'Sale en los comprobantes', isDense: true))),
+            const SizedBox(width: 10),
+            FilledButton(onPressed: () async {
+              final n = _bizName.text.trim();
+              if (n.isEmpty) return;
+              await store.setBusinessName(n);
               if (!context.mounted) return;
               FocusScope.of(context).unfocus();
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tasa actualizada')));
-            }
-          }, child: const Text('Guardar')),
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nombre actualizado')));
+            }, child: const Text('Guardar')),
+          ]),
+          const SizedBox(height: 14),
+          Row(children: [
+            Expanded(child: TextField(controller: _rate, focusNode: _rateFocus, keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'Tasa de cambio', prefixText: '1 USD = ', suffixText: 'Bs', isDense: true))),
+            const SizedBox(width: 10),
+            FilledButton(onPressed: () async {
+              final v = double.tryParse(_rate.text.replaceAll(',', '.'));
+              if (v != null && v > 0) {
+                await store.setRate(v);
+                if (!context.mounted) return;
+                FocusScope.of(context).unfocus();
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tasa actualizada')));
+              }
+            }, child: const Text('Guardar')),
+          ]),
         ]))),
-        const SizedBox(height: 12),
-        Row(children: [
-          Expanded(child: FilledButton.tonalIcon(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProductForm())), icon: const Icon(Icons.add), label: const Text('Nuevo producto'))),
-          const SizedBox(width: 8),
-          Expanded(child: FilledButton.tonalIcon(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HistoryScreen())), icon: const Icon(Icons.history), label: const Text('Historial hoy'))),
-        ]),
-        const SizedBox(height: 8),
-        SizedBox(width: double.infinity, child: FilledButton.tonalIcon(
-          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HistoryDaysScreen())),
-          icon: const Icon(Icons.calendar_month), label: const Text('Historial de dias'))),
-        const SizedBox(height: 8),
-        SizedBox(width: double.infinity, child: FilledButton.tonalIcon(
-          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CategoriesScreen())),
-          icon: const Icon(Icons.category), label: const Text('Categorias'))),
-        const SizedBox(height: 8),
-        SizedBox(width: double.infinity, child: FilledButton.tonalIcon(
-          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const InventoryScreen())),
-          icon: const Icon(Icons.inventory_2), label: const Text('Inventario de ingredientes'))),
-        const SizedBox(height: 8),
-        SizedBox(width: double.infinity, child: FilledButton.tonalIcon(
-          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CancellationsScreen())),
-          icon: const Icon(Icons.money_off), label: const Text('Anulaciones / Perdidas'))),
-        const SizedBox(height: 8),
-        SizedBox(width: double.infinity, child: FilledButton.tonalIcon(
-          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RentabilidadScreen())),
-          icon: const Icon(Icons.trending_up), label: const Text('Rentabilidad'))),
-        const SizedBox(height: 8),
-        SizedBox(width: double.infinity, child: FilledButton.tonalIcon(
-          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const GastosScreen())),
-          icon: const Icon(Icons.receipt_long), label: const Text('Gastos'))),
-        const SizedBox(height: 8),
-        SizedBox(width: double.infinity, child: FilledButton.tonalIcon(
-          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportesScreen())),
-          icon: const Icon(Icons.bar_chart), label: const Text('Reportes (semana / mes)'))),
-        const SizedBox(height: 8),
-        SizedBox(width: double.infinity, child: FilledButton.tonalIcon(
-          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EmployeesScreen())),
-          icon: const Icon(Icons.badge), label: const Text('Trabajadores'))),
-        const SizedBox(height: 8),
-        SizedBox(width: double.infinity, child: FilledButton.tonalIcon(
-          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const UsersScreen())),
-          icon: const Icon(Icons.manage_accounts), label: const Text('Usuarios'))),
-        const SizedBox(height: 8),
-        Row(children: [
-          Expanded(child: FilledButton.tonalIcon(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TablesScreen())), icon: const Icon(Icons.table_bar), label: const Text('Mesas'))),
-          const SizedBox(width: 8),
-          Expanded(child: FilledButton.tonalIcon(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const KitchenScreen())), icon: const Icon(Icons.soup_kitchen), label: const Text('Cocina'))),
-        ]),
-        const SizedBox(height: 16),
-        SizedBox(width: double.infinity, height: 48, child: OutlinedButton.icon(
-          style: OutlinedButton.styleFrom(foregroundColor: Colors.red, side: const BorderSide(color: Colors.red)),
+        const SizedBox(height: 18),
+        SizedBox(width: double.infinity, height: 52, child: OutlinedButton.icon(
+          style: OutlinedButton.styleFrom(foregroundColor: kBad, side: const BorderSide(color: kBad, width: 1.4)),
           onPressed: () => _cierreDeCaja(context),
           icon: const Icon(Icons.point_of_sale), label: const Text('Cierre de caja'))),
-        const Text('Muestra el reporte del dia y reinicia mesas, pedidos y comandas. Solo cuando todo este cobrado. No borra las ventas.',
-          textAlign: TextAlign.center, style: TextStyle(fontSize: 11, color: Colors.grey)),
-        if (store.lowStock.isNotEmpty) ...[lowStockCard(), const SizedBox(height: 12)],
-        const Divider(height: 28),
-        const Text('Productos y precios (toca para editar)', style: TextStyle(fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
+        const Padding(padding: EdgeInsets.only(top: 6), child: Text(
+          'Muestra el reporte del dia y reinicia mesas, pedidos y comandas. Solo cuando todo este cobrado. No borra las ventas.',
+          textAlign: TextAlign.center, style: TextStyle(fontSize: 11.5, color: kMuted))),
+        _titulo('Productos y precios', ayuda: 'Toca un producto para editarlo'),
         if (store.products.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('Cargando productos...', style: TextStyle(color: Colors.grey))),
         for (final c in store.categories) ...[
           if (store.products.any((p) => p.cat == c.key)) ...[
-            Padding(padding: const EdgeInsets.only(top: 8, bottom: 4), child: Text('${c.emoji} ${c.label}', style: const TextStyle(fontWeight: FontWeight.bold, color: kPrimary))),
+            Padding(padding: const EdgeInsets.only(top: 10, bottom: 6, left: 4),
+              child: Text('${c.emoji}  ${c.label}', style: const TextStyle(fontWeight: FontWeight.w700, color: kPrimary, fontSize: 15))),
             for (final p in store.products.where((p) => p.cat == c.key))
-              Card(margin: const EdgeInsets.only(bottom: 6), child: ListTile(
-                leading: Text(p.emoji, style: const TextStyle(fontSize: 24)),
-                title: Text(p.name),
-                subtitle: Text('${dualPrice(p.price, p.cur)}${p.trackStock ? '  ·  stock: ${p.stock.toStringAsFixed(0)}' : ''}${store.maxMakeable(p) >= 0 ? '  ·  alcanza ~${store.maxMakeable(p)}' : ''}', style: const TextStyle(fontSize: 11.5)),
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ProductForm(existing: p))),
+              Card(margin: const EdgeInsets.only(bottom: 8), child: ListTile(
+                leading: Container(width: 44, height: 44, alignment: Alignment.center,
+                  decoration: BoxDecoration(color: const Color(0xFFFFF3D6), borderRadius: BorderRadius.circular(12)),
+                  child: Text(p.emoji, style: const TextStyle(fontSize: 22))),
+                title: Text(p.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: Text('${dualPrice(p.price, p.cur)}${p.trackStock ? '  ·  stock: ${p.stock.toStringAsFixed(0)}' : ''}${store.maxMakeable(p) >= 0 ? '  ·  alcanza ~${store.maxMakeable(p)}' : ''}', style: const TextStyle(fontSize: 12)),
+                onTap: () => _ir(ProductForm(existing: p)),
                 trailing: Switch(value: p.available, onChanged: (_) => store.toggleProduct(p)))),
           ],
         ],
-      ])),
+      ])))),
     );
   }
+
+  Widget _titulo(String t, {String? ayuda}) => Padding(
+        padding: const EdgeInsets.fromLTRB(4, 20, 4, 10),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
+          Text(t, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: kInk)),
+          if (ayuda != null) ...[const SizedBox(width: 10), Expanded(child: Text(ayuda, style: const TextStyle(fontSize: 12.5, color: kMuted)))],
+        ]),
+      );
+
+  Widget _seccion(String t, List<_Atajo> atajos) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        _titulo(t),
+        LayoutBuilder(builder: (context, c) {
+          final cols = c.maxWidth >= 720 ? 4 : (c.maxWidth >= 440 ? 3 : 2);
+          const gap = 10.0;
+          final w = (c.maxWidth - gap * (cols - 1)) / cols;
+          return Wrap(spacing: gap, runSpacing: gap, children: [for (final a in atajos) SizedBox(width: w, child: a)]);
+        }),
+      ]);
+
+  // Tarjeta negra de arriba: nombre del negocio y como va el dia.
+  Widget _resumenHoy() {
+    final neto = store.todayTotalUsd - store.todayGastosUsd;
+    final abiertas = store.tables.where((t) => store.tableStatus(t.number) != 'disponible').length;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+      decoration: BoxDecoration(color: kInk, borderRadius: BorderRadius.circular(22)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Image.asset('assets/marca/simbolo.png', height: 30, errorBuilder: (_, __, ___) => const Icon(Icons.storefront, color: kAmber)),
+          const SizedBox(width: 12),
+          Expanded(child: Text(store.businessName, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700))),
+          Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(99)),
+            child: Text('1 USD = ${store.rate.toStringAsFixed(2)} Bs', style: const TextStyle(color: Colors.white70, fontSize: 12))),
+        ]),
+        const SizedBox(height: 18),
+        const Text('Vendido hoy', style: TextStyle(color: Colors.white60, fontSize: 13)),
+        const SizedBox(height: 2),
+        Text(dualUsd(store.todayTotalUsd), style: const TextStyle(color: kAmber, fontSize: 28, fontWeight: FontWeight.w800, height: 1.15)),
+        const SizedBox(height: 14),
+        Wrap(spacing: 22, runSpacing: 8, children: [
+          _dato('Cuentas cobradas', '${store.todaySales.length}'),
+          _dato('Mesas abiertas', '$abiertas'),
+          if (store.todayGastosUsd > 0) _dato('Ventas menos gastos', dualUsd(neto)),
+        ]),
+      ]),
+    );
+  }
+  Widget _dato(String k, String v) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(k, style: const TextStyle(color: Colors.white54, fontSize: 12)),
+        Text(v, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
+      ]);
+}
+
+// Boton grande de acceso rapido del panel del administrador.
+class _Atajo extends StatelessWidget {
+  final IconData icono;
+  final String texto;
+  final VoidCallback onTap;
+  const _Atajo(this.icono, this.texto, this.onTap);
+  @override
+  Widget build(BuildContext context) => Material(
+        color: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: const BorderSide(color: kLine)),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(onTap: onTap, child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Container(width: 40, height: 40, alignment: Alignment.center,
+              decoration: BoxDecoration(color: const Color(0xFFFFF3D6), borderRadius: BorderRadius.circular(12)),
+              child: Icon(icono, color: kPrimary, size: 22)),
+            const SizedBox(height: 12),
+            Text(texto, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5, color: kInk)),
+          ]),
+        )),
+      );
 }
 
 // ======================= FORMULARIO DE PRODUCTO =======================
@@ -2276,20 +2580,20 @@ class _ProductFormState extends State<ProductForm> {
           }),
       ]),
       body: ListView(padding: const EdgeInsets.all(16), children: [
-        TextField(controller: _name, decoration: const InputDecoration(labelText: 'Nombre', border: OutlineInputBorder())),
+        TextField(controller: _name, decoration: const InputDecoration(labelText: 'Nombre')),
         const SizedBox(height: 12),
         Row(children: [
-          SizedBox(width: 90, child: TextField(controller: _emoji, textAlign: TextAlign.center, decoration: const InputDecoration(labelText: 'Icono', border: OutlineInputBorder()))),
+          SizedBox(width: 90, child: TextField(controller: _emoji, textAlign: TextAlign.center, decoration: const InputDecoration(labelText: 'Icono'))),
           const SizedBox(width: 12),
           Expanded(child: DropdownButtonFormField<String>(value: store.categories.any((c) => c.key == _cat) ? _cat : null,
-            decoration: const InputDecoration(labelText: 'Categoria', border: OutlineInputBorder()),
+            decoration: const InputDecoration(labelText: 'Categoria'),
             items: [for (final c in store.categories) DropdownMenuItem(value: c.key, child: Text('${c.emoji} ${c.label}'))],
             onChanged: (v) => setState(() => _cat = v ?? 'otros'))),
         ]),
         const SizedBox(height: 12),
         Row(children: [
           Expanded(child: TextField(controller: _price, keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Precio', border: OutlineInputBorder()))),
+              decoration: const InputDecoration(labelText: 'Precio'))),
           const SizedBox(width: 12),
           SegmentedButton<Currency>(segments: const [ButtonSegment(value: Currency.usd, label: Text('USD')), ButtonSegment(value: Currency.ves, label: Text('Bs'))],
               selected: {_cur}, onSelectionChanged: (s) => setState(() => _cur = s.first)),
@@ -2298,7 +2602,7 @@ class _ProductFormState extends State<ProductForm> {
         SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Disponible'), value: _available, onChanged: (v) => setState(() => _available = v)),
         SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Usar tamanos (Pequena/Mediana/Grande)'), value: _useSizes, onChanged: (v) => setState(() => _useSizes = v)),
         const SizedBox(height: 6),
-        TextField(controller: _quita, decoration: const InputDecoration(labelText: 'Ingredientes que se pueden quitar (separados por coma)', hintText: 'Cebolla, Tomate, Salsas', border: OutlineInputBorder())),
+        TextField(controller: _quita, decoration: const InputDecoration(labelText: 'Ingredientes que se pueden quitar (separados por coma)', hintText: 'Cebolla, Tomate, Salsas')),
         const SizedBox(height: 16),
         Row(children: [
           const Text('Extras', style: TextStyle(fontWeight: FontWeight.bold)), const Spacer(),
@@ -2306,9 +2610,9 @@ class _ProductFormState extends State<ProductForm> {
         ]),
         for (var i = 0; i < _extras.length; i++)
           Padding(padding: const EdgeInsets.only(bottom: 8), child: Row(children: [
-            Expanded(flex: 3, child: TextField(controller: _extras[i][0], decoration: const InputDecoration(labelText: 'Nombre extra', isDense: true, border: OutlineInputBorder()))),
+            Expanded(flex: 3, child: TextField(controller: _extras[i][0], decoration: const InputDecoration(labelText: 'Nombre extra', isDense: true))),
             const SizedBox(width: 8),
-            Expanded(flex: 2, child: TextField(controller: _extras[i][1], keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Precio', isDense: true, border: OutlineInputBorder()))),
+            Expanded(flex: 2, child: TextField(controller: _extras[i][1], keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Precio', isDense: true))),
             IconButton(icon: const Icon(Icons.remove_circle_outline, color: Colors.red), onPressed: () => setState(() { _extras[i][0].dispose(); _extras[i][1].dispose(); _extras.removeAt(i); })),
           ])),
         const Divider(height: 24),
@@ -2323,11 +2627,11 @@ class _ProductFormState extends State<ProductForm> {
               Expanded(flex: 3, child: DropdownButtonFormField<String>(
                 value: store.products.any((x) => x.id == _comboRows[i].productId && x.cat != 'combos') ? _comboRows[i].productId : null,
                 isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Producto', isDense: true, border: OutlineInputBorder()),
+                decoration: const InputDecoration(labelText: 'Producto', isDense: true),
                 items: [for (final pr in store.products.where((x) => x.cat != 'combos')) DropdownMenuItem(value: pr.id, child: Text(pr.name, overflow: TextOverflow.ellipsis))],
                 onChanged: (v) => setState(() => _comboRows[i].productId = v))),
               const SizedBox(width: 8),
-              SizedBox(width: 64, child: TextField(controller: _comboRows[i].qty, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Cant.', isDense: true, border: OutlineInputBorder()))),
+              SizedBox(width: 64, child: TextField(controller: _comboRows[i].qty, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Cant.', isDense: true))),
               IconButton(icon: const Icon(Icons.remove_circle_outline, color: Colors.red), onPressed: () => setState(() { _comboRows[i].qty.dispose(); _comboRows.removeAt(i); })),
             ])),
         ] else ...[
@@ -2343,11 +2647,11 @@ class _ProductFormState extends State<ProductForm> {
               Expanded(flex: 3, child: DropdownButtonFormField<String>(
                 value: store.ingredients.any((ing) => ing.id == _recipeRows[i].ingredientId) ? _recipeRows[i].ingredientId : null,
                 isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Ingrediente', isDense: true, border: OutlineInputBorder()),
+                decoration: const InputDecoration(labelText: 'Ingrediente', isDense: true),
                 items: [for (final ing in store.ingredients) DropdownMenuItem(value: ing.id, child: Text('${ing.name} (${ing.unit})', overflow: TextOverflow.ellipsis))],
                 onChanged: (v) => setState(() => _recipeRows[i].ingredientId = v))),
               const SizedBox(width: 8),
-              SizedBox(width: 64, child: TextField(controller: _recipeRows[i].qty, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Cant.', isDense: true, border: OutlineInputBorder()))),
+              SizedBox(width: 64, child: TextField(controller: _recipeRows[i].qty, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Cant.', isDense: true))),
               IconButton(icon: const Icon(Icons.remove_circle_outline, color: Colors.red), onPressed: () => setState(() { _recipeRows[i].qty.dispose(); _recipeRows.removeAt(i); })),
             ])),
         ],
@@ -2370,9 +2674,9 @@ class CategoriesScreen extends StatelessWidget {
     showDialog<void>(context: context, builder: (dctx) => AlertDialog(
       title: Text(c == null ? 'Nueva categoria' : 'Editar categoria'),
       content: Row(mainAxisSize: MainAxisSize.min, children: [
-        SizedBox(width: 70, child: TextField(controller: emoji, textAlign: TextAlign.center, decoration: const InputDecoration(labelText: 'Icono', border: OutlineInputBorder()))),
+        SizedBox(width: 70, child: TextField(controller: emoji, textAlign: TextAlign.center, decoration: const InputDecoration(labelText: 'Icono'))),
         const SizedBox(width: 10),
-        Expanded(child: TextField(controller: nombre, decoration: const InputDecoration(labelText: 'Nombre', border: OutlineInputBorder()))),
+        Expanded(child: TextField(controller: nombre, decoration: const InputDecoration(labelText: 'Nombre'))),
       ]),
       actions: [
         TextButton(onPressed: () => Navigator.pop(dctx), child: const Text('Cancelar')),
@@ -2658,9 +2962,9 @@ class _IngredientFormState extends State<IngredientForm> {
       ]),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         Row(children: [
-          SizedBox(width: 80, child: TextField(controller: _emoji, textAlign: TextAlign.center, decoration: const InputDecoration(labelText: 'Icono', border: OutlineInputBorder()))),
+          SizedBox(width: 80, child: TextField(controller: _emoji, textAlign: TextAlign.center, decoration: const InputDecoration(labelText: 'Icono'))),
           const SizedBox(width: 12),
-          Expanded(child: TextField(controller: _name, decoration: const InputDecoration(labelText: 'Nombre', hintText: 'Ej: Carne, Queso, Refresco', border: OutlineInputBorder()))),
+          Expanded(child: TextField(controller: _name, decoration: const InputDecoration(labelText: 'Nombre', hintText: 'Ej: Carne, Queso, Refresco'))),
         ]),
         const SizedBox(height: 12),
         SegmentedButton<String>(
@@ -2671,18 +2975,18 @@ class _IngredientFormState extends State<IngredientForm> {
           selected: {_kind}, onSelectionChanged: (s) => setState(() => _kind = s.first)),
         const SizedBox(height: 12),
         DropdownButtonFormField<String>(value: _unit,
-          decoration: const InputDecoration(labelText: 'Unidad de medida', border: OutlineInputBorder()),
+          decoration: const InputDecoration(labelText: 'Unidad de medida'),
           items: [for (final u in _units) DropdownMenuItem(value: u, child: Text(u))],
           onChanged: (v) => setState(() => _unit = v ?? 'kg')),
         const SizedBox(height: 12),
         Row(children: [
-          Expanded(child: TextField(controller: _stock, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Stock actual', border: OutlineInputBorder()))),
+          Expanded(child: TextField(controller: _stock, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Stock actual'))),
           const SizedBox(width: 12),
-          Expanded(child: TextField(controller: _minStock, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Stock minimo (alerta)', border: OutlineInputBorder()))),
+          Expanded(child: TextField(controller: _minStock, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Stock minimo (alerta)'))),
         ]),
         const SizedBox(height: 12),
         Row(children: [
-          Expanded(child: TextField(controller: _cost, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Costo por unidad (compra)', border: OutlineInputBorder()))),
+          Expanded(child: TextField(controller: _cost, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Costo por unidad (compra)'))),
           const SizedBox(width: 12),
           SegmentedButton<Currency>(segments: const [ButtonSegment(value: Currency.usd, label: Text('USD')), ButtonSegment(value: Currency.ves, label: Text('Bs'))], selected: {_costCur}, onSelectionChanged: (v) => setState(() => _costCur = v.first)),
         ]),
@@ -3037,7 +3341,7 @@ class _EmployeeFormState extends State<EmployeeForm> {
         padding: const EdgeInsets.only(bottom: 12),
         child: TextField(controller: c, maxLines: lines,
           keyboardType: number ? const TextInputType.numberWithOptions(decimal: true) : TextInputType.text,
-          decoration: InputDecoration(labelText: label, border: const OutlineInputBorder())),
+          decoration: InputDecoration(labelText: label)),
       );
   @override
   Widget build(BuildContext context) {
@@ -3063,9 +3367,9 @@ class _EmployeeFormState extends State<EmployeeForm> {
         _field(_position, 'Cargo'),
         _field(_schedule, 'Horario de trabajo'),
         Row(children: [
-          Expanded(child: Padding(padding: const EdgeInsets.only(bottom: 12), child: TextField(controller: _salary, keyboardType: const TextInputType.numberWithOptions(decimal: true), onChanged: (_) => setState(() {}), decoration: const InputDecoration(labelText: 'Sueldo', border: OutlineInputBorder())))),
+          Expanded(child: Padding(padding: const EdgeInsets.only(bottom: 12), child: TextField(controller: _salary, keyboardType: const TextInputType.numberWithOptions(decimal: true), onChanged: (_) => setState(() {}), decoration: const InputDecoration(labelText: 'Sueldo')))),
           const SizedBox(width: 12),
-          Expanded(child: Padding(padding: const EdgeInsets.only(bottom: 12), child: TextField(controller: _deductions, keyboardType: const TextInputType.numberWithOptions(decimal: true), onChanged: (_) => setState(() {}), decoration: const InputDecoration(labelText: 'Descuentos', border: OutlineInputBorder())))),
+          Expanded(child: Padding(padding: const EdgeInsets.only(bottom: 12), child: TextField(controller: _deductions, keyboardType: const TextInputType.numberWithOptions(decimal: true), onChanged: (_) => setState(() {}), decoration: const InputDecoration(labelText: 'Descuentos')))),
         ]),
         Padding(padding: const EdgeInsets.only(bottom: 12), child: Row(children: [
           const Text('Sueldo neto:', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -3242,16 +3546,16 @@ class _GastoFormState extends State<GastoForm> {
       ]),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         Padding(padding: const EdgeInsets.only(bottom: 12), child: TextField(controller: _concept,
-          decoration: const InputDecoration(labelText: 'Concepto (ej: pan, gas, bolsas)', border: OutlineInputBorder()))),
+          decoration: const InputDecoration(labelText: 'Concepto (ej: pan, gas, bolsas)'))),
         Padding(padding: const EdgeInsets.only(bottom: 12), child: DropdownButtonFormField<String>(
           value: _cat,
-          decoration: const InputDecoration(labelText: 'Categoria', border: OutlineInputBorder()),
+          decoration: const InputDecoration(labelText: 'Categoria'),
           items: [for (final e in kGastoCats.entries) DropdownMenuItem(value: e.key, child: Text(e.value))],
           onChanged: (v) => setState(() => _cat = v ?? 'otros'))),
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Expanded(child: TextField(controller: _amount, keyboardType: const TextInputType.numberWithOptions(decimal: true),
             onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(labelText: 'Monto', border: OutlineInputBorder()))),
+            decoration: const InputDecoration(labelText: 'Monto'))),
           const SizedBox(width: 12),
           SegmentedButton<Currency>(
             segments: const [ButtonSegment(value: Currency.usd, label: Text('USD')), ButtonSegment(value: Currency.ves, label: Text('Bs'))],
@@ -3268,7 +3572,7 @@ class _GastoFormState extends State<GastoForm> {
             onSelected: (sel) => setState(() => _method = sel ? m : '')),
         ]),
         const SizedBox(height: 12),
-        TextField(controller: _note, maxLines: 3, decoration: const InputDecoration(labelText: 'Nota (opcional)', border: OutlineInputBorder())),
+        TextField(controller: _note, maxLines: 3, decoration: const InputDecoration(labelText: 'Nota (opcional)')),
         const SizedBox(height: 16),
         SizedBox(width: double.infinity, height: 50, child: FilledButton.icon(
           onPressed: _saving ? null : _save,
@@ -3508,13 +3812,13 @@ class _UserFormState extends State<UserForm> {
           }),
       ]),
       body: ListView(padding: const EdgeInsets.all(16), children: [
-        TextField(controller: _name, decoration: const InputDecoration(labelText: 'Nombre', border: OutlineInputBorder())),
+        TextField(controller: _name, decoration: const InputDecoration(labelText: 'Nombre')),
         const SizedBox(height: 12),
         TextField(controller: _pin, keyboardType: TextInputType.number, maxLength: 6,
-          decoration: InputDecoration(labelText: widget.existing == null ? 'PIN (6 numeros)' : 'PIN nuevo (vacio = no cambiar)', border: const OutlineInputBorder(), counterText: '')),
+          decoration: InputDecoration(labelText: widget.existing == null ? 'PIN (6 numeros)' : 'PIN nuevo (vacio = no cambiar)', counterText: '')),
         const SizedBox(height: 12),
         DropdownButtonFormField<String>(value: _role,
-          decoration: const InputDecoration(labelText: 'Rol', border: OutlineInputBorder()),
+          decoration: const InputDecoration(labelText: 'Rol'),
           items: const [
             DropdownMenuItem(value: 'admin', child: Text('Administrador')),
             DropdownMenuItem(value: 'mesero', child: Text('Mesero / Cajero')),
@@ -3617,7 +3921,7 @@ class TableTicketsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Comandas - Mesa $table')),
+      appBar: AppBar(title: Text('Comandas de la mesa $table')),
       body: AnimatedBuilder(animation: store, builder: (context, _) {
         final list = store.tickets.where((t) => t.table == table).toList();
         if (list.isEmpty) {
@@ -3703,7 +4007,7 @@ class _ChangePinScreenState extends State<ChangePinScreen> {
   Widget _campo(TextEditingController c, String label) => Padding(
         padding: const EdgeInsets.only(bottom: 14),
         child: TextField(controller: c, keyboardType: TextInputType.number, maxLength: 6, obscureText: true,
-          decoration: InputDecoration(labelText: label, border: const OutlineInputBorder(), counterText: '')),
+          decoration: InputDecoration(labelText: label, counterText: '')),
       );
 
   @override

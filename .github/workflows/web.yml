@@ -13,6 +13,7 @@ on:
       - 'pubspec.yaml'
       - 'pubspec.lock'
       - 'logo.png'
+      - 'assets/**'
       - 'icon.png'
       - 'web_extra/**'
       - '.github/workflows/web.yml'
@@ -47,16 +48,17 @@ jobs:
         run: |
           cp pubspec.yaml /tmp/pubspec.yaml
           cp -r lib /tmp/lib_backup
-          flutter create --platforms=web --project-name comandas_app --org com.puestocomida .
+          flutter create --platforms=web --project-name comandapp --org com.comandapp .
           cp /tmp/pubspec.yaml pubspec.yaml
           rm -rf lib && cp -r /tmp/lib_backup lib
 
       - name: Nombre y colores de la pagina
         run: |
-          sed -i 's#<title>comandas_app</title>#<title>Comandas</title>#' web/index.html
-          sed -i 's#content="comandas_app"#content="Comandas"#' web/index.html
-          sed -i 's#"name": "comandas_app"#"name": "Comandas"#; s#"short_name": "comandas_app"#"short_name": "Comandas"#' web/manifest.json
-          sed -i 's#"background_color": "[^"]*"#"background_color": "\#FFF8F3"#; s#"theme_color": "[^"]*"#"theme_color": "\#D84315"#' web/manifest.json
+          sed -i 's#<title>comandapp</title>#<title>ComandApp</title>#' web/index.html
+          sed -i 's#content="comandapp"#content="ComandApp"#' web/index.html
+          sed -i 's#"name": "comandapp"#"name": "ComandApp"#; s#"short_name": "comandapp"#"short_name": "ComandApp"#' web/manifest.json
+          sed -i 's#"background_color": "[^"]*"#"background_color": "\#0D0D0D"#; s#"theme_color": "[^"]*"#"theme_color": "\#111111"#' web/manifest.json
+          sed -i 's#"description": "[^"]*"#"description": "Comandas, caja e inventario para restaurantes"#' web/manifest.json
           grep -n "<title>" web/index.html
           cat web/manifest.json | head -12
 
@@ -75,6 +77,7 @@ jobs:
           rm -rf _site && mkdir -p _site
           cp -r admin/. _site/
           cp logo.png _site/logo.png
+          mkdir -p _site/marca && cp -r assets/marca/. _site/marca/
           cp -r build/web _site/app
           ls -la _site _site/app | head -40
 

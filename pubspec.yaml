@@ -1,7 +1,7 @@
-name: comandas_app
-description: "Sistema de comandas para puesto de comida (nube + actualizaciones por el aire)."
+name: comandapp
+description: "ComandApp: comandas, caja e inventario para restaurantes y negocios de comida."
 publish_to: 'none'
-version: 0.8.0+11
+version: 1.0.0+12
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -13,6 +13,7 @@ dependencies:
   supabase_flutter: ^2.8.0
   firebase_core: ^3.13.0
   firebase_messaging: ^15.2.5
+  shared_preferences: ^2.5.6
 
 dev_dependencies:
   flutter_test:
@@ -23,7 +24,20 @@ flutter:
   uses-material-design: true
   assets:
     - shorebird.yaml
-    - logo.png
+    - assets/marca/
+  fonts:
+    - family: Outfit
+      fonts:
+        - asset: assets/fuentes/Outfit-Regular.ttf
+          weight: 400
+        - asset: assets/fuentes/Outfit-Medium.ttf
+          weight: 500
+        - asset: assets/fuentes/Outfit-SemiBold.ttf
+          weight: 600
+        - asset: assets/fuentes/Outfit-Bold.ttf
+          weight: 700
+        - asset: assets/fuentes/Outfit-ExtraBold.ttf
+          weight: 800
 
 flutter_launcher_icons:
   android: "launcher_icon"
