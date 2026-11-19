@@ -11,6 +11,7 @@ begin
   nombre_mesero := (select name from public.app_users where email = mesero_a);
   insert into public.ingredients (negocio_id, name, stock) values (a, 'Harina prueba op', 100) returning id into ing;
   delete from public.account_items where negocio_id = a and table_number = 1;
+  delete from public.tickets where negocio_id = a and table_number = 1;
   update public.dining_tables set status = 'disponible', waiter = null, opened_at = null where negocio_id = a and number = 1;
 
   -- ================= como MESERO =================

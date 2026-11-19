@@ -110,6 +110,10 @@ begin
   if n <> 0 then raise exception 'FALLO 14: un mesero edito el negocio'; end if; total := total + 1;
   select count(*) into n from public.sales;
   if n <> 0 then raise exception 'FALLO 15: el mesero ve ventas'; end if; total := total + 1;
+  begin
+    insert into public.products (name, price, category) values ('Intento mesero', 1, 'perros');
+    raise exception 'FALLO 15b: un mesero creo un producto';
+  exception when insufficient_privilege then null; end; total := total + 1;
   execute 'reset role';
 
   -- ================= como MESERO del negocio B =================

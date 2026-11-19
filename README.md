@@ -117,7 +117,9 @@ solo ve y cambia los datos de su negocio (regla restrictiva por tabla, ademas de
   (PIN comprobado en el servidor; 5 fallos seguidos desde un equipo bloquean 5 min, luego 30 min y 2 h;
   30 fallos en una hora bloquean 30 min en todas partes).
 - `0017_reportes.sql`: `reporte_periodo(desde, hasta)`, el reporte de semana o mes calculado con todas las ventas.
-- Pruebas locales: `prueba_multi_negocio.sql` (39), `prueba_operaciones.sql` (18), `prueba_entrada.sql` (13),
+- `0018_politicas_por_accion.sql`: una sola regla de permisos por acción en productos, categorías, ingredientes y
+  configuración (mismos permisos, consultas más rápidas).
+- Pruebas locales: `prueba_multi_negocio.sql` (40), `prueba_operaciones.sql` (18), `prueba_entrada.sql` (13),
   `prueba_reportes.sql` (8) y `prueba_roles.sql`.
 
 ### Probar migraciones en local
