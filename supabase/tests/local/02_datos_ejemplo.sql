@@ -1,13 +1,13 @@
--- Datos de ejemplo con la misma forma que produccion (un solo negocio, como antes de 0011).
+-- Datos INVENTADOS con la misma forma que produccion (ningun correo ni PIN real) (un solo negocio, como antes de 0011).
 insert into public.app_config (id, rate, business_name, motiv_shown) values (1, 746.63, 'Puesto de Comida', true);
 insert into auth.users (id, email, encrypted_password) values
-  ('11111111-1111-1111-1111-111111111111', 'angelpitarch06@gmail.com', extensions.crypt('240880-comandas', extensions.gen_salt('bf'))),
-  ('22222222-2222-2222-2222-222222222222', 'mesero@comandas.local', extensions.crypt('482916-comandas', extensions.gen_salt('bf'))),
-  ('33333333-3333-3333-3333-333333333333', 'cocina@comandas.local', extensions.crypt('739104-comandas', extensions.gen_salt('bf')));
+  ('11111111-1111-1111-1111-111111111111', 'admin@ejemplo.test', extensions.crypt('000000-prueba', extensions.gen_salt('bf'))),
+  ('22222222-2222-2222-2222-222222222222', 'mesero@ejemplo.test', extensions.crypt('000000-prueba', extensions.gen_salt('bf'))),
+  ('33333333-3333-3333-3333-333333333333', 'cocina@ejemplo.test', extensions.crypt('000000-prueba', extensions.gen_salt('bf')));
 insert into public.app_users (id, name, pin, role, email) values
-  ('fe1458f2-a6b2-434c-b981-5fc73a6ced43', 'Administrador', '', 'admin', 'angelpitarch06@gmail.com'),
-  ('962598ee-a1e0-48a2-8a1f-1daceba41df1', 'Mesero', '', 'mesero', 'mesero@comandas.local'),
-  ('faa4b428-3f5c-463e-b165-f13d9d083b9c', 'Cocinero', '', 'cocina', 'cocina@comandas.local');
+  ('fe1458f2-a6b2-434c-b981-5fc73a6ced43', 'Administrador', '', 'admin', 'admin@ejemplo.test'),
+  ('962598ee-a1e0-48a2-8a1f-1daceba41df1', 'Mesero', '', 'mesero', 'mesero@ejemplo.test'),
+  ('faa4b428-3f5c-463e-b165-f13d9d083b9c', 'Cocinero', '', 'cocina', 'cocina@ejemplo.test');
 insert into public.categories (key, label, emoji, position, protected) values
   ('hamburguesas', 'Hamburguesas', '🍔', 10, true), ('perros', 'Perros calientes', '🌭', 20, true), ('otros', 'Salchipapas', '🍟', 60, true);
 insert into public.ingredients (id, name, unit, stock, min_stock, cost) values
@@ -23,4 +23,4 @@ insert into public.account_items (table_number, product_name, qty, unit_usd) val
 insert into public.sales (table_number, total_usd, lines, payments) values (9, 8, '[{"qty":2,"name":"Perro Normal","lineUsd":8}]', '[{"method":"Pago movil","amountUsd":8}]');
 insert into public.gastos (concept, category, amount_usd, by_user) values ('Pan de Perro', 'ingredientes', 13, 'Administrador');
 insert into public.cancellations (ticket_number, table_number, merchandise_used, value_usd, by_user) values (5, 5, true, 39, 'Administrador');
-insert into public.device_tokens (token, user_email, role) values ('token-de-prueba-del-telefono-de-cocina-0001', 'cocina@comandas.local', 'cocina');
+insert into public.device_tokens (token, user_email, role) values ('token-de-prueba-del-telefono-de-cocina-0001', 'cocina@ejemplo.test', 'cocina');
