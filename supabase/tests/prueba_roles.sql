@@ -29,7 +29,7 @@ begin
     end if;
     begin
       -- comanda de prueba (se deshace al final del rol)
-      insert into public.tickets (table_number, status, note) values (999, 'nueva', 'prueba');
+      insert into public.tickets (table_number, status, note, negocio_id) values (999, 'nueva', 'prueba', (select negocio_id from public.app_users where email = em));
       perform set_config('request.jwt.claims', json_build_object('email', em, 'role', 'authenticated')::text, true);
       set local role authenticated;
       r := r || upper(rl) || E'\n  lee: ';

@@ -52,7 +52,10 @@ Deno.serve(async (req) => {
   const body = `#${ev.number ?? ''} - ${donde}`;
 
   const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-  const { data: rows, error } = await admin.from('device_tokens').select('token');
+  // Solo los telefonos del negocio de la comanda (ComandApp tiene varios negocios).
+  let q = admin.from('device_tokens').select('token');
+  if (ev.negocio_id) q = q.eq('negocio_id', ev.negocio_id);
+  const { data: rows, error } = await q;
   if (error) return new Response('db: ' + error.message, { status: 500 });
   if (!rows || rows.length === 0) return new Response('sin dispositivos', { status: 200 });
 

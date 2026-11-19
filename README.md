@@ -18,7 +18,7 @@ no solo en la pantalla: aunque alguien modifique la app, el servidor rechaza lo 
 ## Poner en marcha la base de datos (una sola vez)
 
 1. En Supabase abre **SQL Editor** y ejecuta, en orden, los archivos de `supabase/migrations/`:
-   `0001_schema.sql`, `0002_seguridad_por_rol.sql`, `0003_datos_iniciales.sql`, `0004_cocina_solo_estado.sql`, `0005_cierre_con_gastos.sql`, `0006_avisos_push.sql`, `0007_disparador_avisos.sql`, `0008_pin_6_digitos.sql`, `0009_pines_obvios.sql` y `0010_panel_web.sql`.
+   `0001_schema.sql`, `0002_seguridad_por_rol.sql`, `0003_datos_iniciales.sql`, `0004_cocina_solo_estado.sql`, `0005_cierre_con_gastos.sql`, `0006_avisos_push.sql`, `0007_disparador_avisos.sql`, `0008_pin_6_digitos.sql`, `0009_pines_obvios.sql`, `0010_panel_web.sql` y `0011_multi_negocio.sql`.
    Son seguros de repetir: no borran datos.
 2. Crea el primer administrador:
    - En **Authentication → Users → Add user** crea un usuario con su correo y la contraseña
@@ -69,6 +69,38 @@ notificacion llega por un canal de importancia alta. La app lo crea al abrirse
 codigo nativo, publicarlo exige un `release` nuevo (version mayor) e instalar el APK; no se puede
 enviar como `patch`. Si el celular tiene las notificaciones de Comandas silenciadas o el canal
 "Comandas nuevas" en baja prioridad (Ajustes → Apps → Comandas → Notificaciones), no aparecera la ventana.
+
+## Varios negocios (0011)
+
+ComandApp atiende a varios negocios en una sola base de datos. Cada fila tiene `negocio_id` y cada persona
+solo ve y cambia los datos de su negocio (regla restrictiva por tabla, ademas de las reglas por rol).
+
+- `public.negocios`: nombre, codigo para entrar, plan, estado (`activo` / `suspendido`) y `vence_el`.
+  Un negocio suspendido o vencido no ve ningun dato. El admin del negocio puede editar nombre, RIF,
+  telefono, direccion y logo, pero no el plan, el estado ni el vencimiento.
+- La app actual sigue funcionando igual: `negocio_id` se llena solo, la tasa sigue en `app_config` con
+  `id = 1` (una fila por negocio), las mesas se identifican por numero dentro del negocio y el numero de
+  comanda es consecutivo por negocio (`private.contadores`).
+- `private.crear_negocio(nombre, codigo, admin_nombre, admin_correo, mesas)` da de alta un negocio con su
+  configuracion, categorias base, mesas y administrador (el acceso con correo y PIN lo crea `admin-usuarios`).
+- `personal_del_negocio(codigo)`: lista el personal de UN negocio para la pantalla de entrada. Cuando la app
+  nueva use esta funcion, se cerrara la vista `public_staff` (hoy lista a todo el personal de la plataforma).
+- Respaldo previo a 0011 dentro de la base: esquema `respaldo_20261119` (sin acceso desde la API).
+
+### Probar migraciones en local
+
+`supabase/tests/local/` tiene una copia fiel de la estructura de produccion (anterior a 0011) y una imitacion
+minima de Supabase. Con un Postgres local:
+
+```bash
+supabase/tests/local/preparar.sh supabase/migrations/0011_multi_negocio.sql
+psql -h /var/lib/postgresql/comandapp-test -p 54329 -U postgres -d comandapp_prueba -f supabase/tests/prueba_multi_negocio.sql
+psql -h /var/lib/postgresql/comandapp-test -p 54329 -U postgres -d comandapp_prueba -f supabase/tests/prueba_roles.sql
+```
+
+Ambas pruebas terminan con `PRUEBA_TERMINADA` (a proposito, para no dejar cambios). `prueba_multi_negocio.sql`
+tambien se puede correr en el SQL Editor de Supabase: crea un negocio de prueba, verifica 34 puntos de
+aislamiento y lo deshace todo.
 
 ## Pagina web (panel de administracion)
 
