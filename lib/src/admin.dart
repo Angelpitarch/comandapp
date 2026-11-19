@@ -246,7 +246,7 @@ class _AdminScreenState extends State<AdminScreen> {
             Expanded(child: TextField(controller: _rate, focusNode: _rateFocus, enabled: !store.tasaAuto,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 decoration: InputDecoration(labelText: 'Tasa de cambio', prefixText: '1 USD = ', suffixText: 'Bs', isDense: true,
-                    helperText: store.tasaAuto ? 'Para escribirla a mano, apaga la tasa del BCV' : null))),
+                    helperText: store.tasaAuto ? 'Apaga la del BCV para escribirla' : null, helperMaxLines: 2))),
             const SizedBox(width: 10),
             FilledButton(onPressed: store.tasaAuto ? null : () async {
               final v = double.tryParse(_rate.text.replaceAll(',', '.'));
