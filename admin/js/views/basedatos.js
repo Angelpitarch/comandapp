@@ -19,13 +19,12 @@ const DESC = {
   gastos: 'Gastos del negocio',
   ingredients: 'Ingredientes del inventario',
   products: 'Productos del menú',
-  public_staff: 'Lista del personal para la pantalla de acceso (vista)',
   sales: 'Ventas cobradas',
   takeaways: 'Pedidos para llevar abiertos',
   tickets: 'Comandas enviadas a cocina',
 };
 // Tablas que aqui solo se leen (tienen su propia pantalla o son internas)
-const SOLO_LECTURA = { app_users: 'Los usuarios se editan en la sección Usuarios, para que su acceso y su PIN queden bien.', public_staff: 'Es una vista calculada a partir de los usuarios.', device_tokens: 'La administra el servidor de avisos.' };
+const SOLO_LECTURA = { app_users: 'Los usuarios se editan en la sección Usuarios, para que su acceso y su PIN queden bien.', device_tokens: 'La administra el servidor de avisos.' };
 const OCULTAS = { app_users: ['pin', 'pin_hash'] };
 const PAGE = 50;
 

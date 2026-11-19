@@ -15,7 +15,8 @@
 --          deduct = ERR; save_user = ERR; my_profile=cocina.
 --          Comanda de prueba: cocina_estado=1 (puede cambiar estado), cocina_cambia_nota=ERR,
 --          cocina_anula=ERR. En admin y mesero esos tres = 1, 1, 1 (no hay restriccion).
---  ANON  : solo public_staff se puede leer; todo lo demas = ERR.
+--  ANON  : no lee ninguna tabla (todo = ERR). Solo personal_del_negocio con un codigo
+--          valido devuelve filas (el personal de ese negocio); con un codigo inventado = 0.
 
 do $t$
 declare
@@ -70,8 +71,7 @@ begin
     r := r || E'ANON\n  ';
     perform set_config('request.jwt.claims', '{"role":"anon"}', true);
     set local role anon;
-    begin select count(*) into n from public.public_staff; r := r || 'public_staff=' || n || ' '; exception when others then r := r || 'public_staff=ERR '; end;
-    begin insert into public.public_staff (name) values ('x'); r := r || 'public_staff.insert=OK(MAL) '; exception when others then r := r || 'public_staff.insert=ERR '; end;
+    begin select count(*) into n from public.personal_del_negocio('codigo-que-no-existe-zz'); r := r || 'personal_codigo_falso=' || n || ' '; exception when others then r := r || 'personal_codigo_falso=ERR '; end;
     begin select count(*) into n from public.app_users; r := r || 'app_users=' || n || '(MAL) '; exception when others then r := r || 'app_users=ERR '; end;
     begin select count(*) into n from public.sales; r := r || 'sales=' || n || '(MAL) '; exception when others then r := r || 'sales=ERR '; end;
     begin perform public.save_user(null, 'x', '1234', 'admin', true); r := r || 'save_user=OK(MAL) '; exception when others then r := r || 'save_user=ERR '; end;

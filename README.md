@@ -37,7 +37,7 @@ no solo en la pantalla: aunque alguien modifique la app, el servidor rechaza lo 
 ## Poner en marcha la base de datos (una sola vez)
 
 1. En Supabase abre **SQL Editor** y ejecuta, en orden, los archivos de `supabase/migrations/`:
-   `0001_schema.sql`, `0002_seguridad_por_rol.sql`, `0003_datos_iniciales.sql`, `0004_cocina_solo_estado.sql`, `0005_cierre_con_gastos.sql`, `0006_avisos_push.sql`, `0007_disparador_avisos.sql`, `0008_pin_6_digitos.sql`, `0009_pines_obvios.sql`, `0010_panel_web.sql` y `0011_multi_negocio.sql`.
+   `0001_schema.sql`, `0002_seguridad_por_rol.sql`, `0003_datos_iniciales.sql`, `0004_cocina_solo_estado.sql`, `0005_cierre_con_gastos.sql`, `0006_avisos_push.sql`, `0007_disparador_avisos.sql`, `0008_pin_6_digitos.sql`, `0009_pines_obvios.sql`, `0010_panel_web.sql`, `0011_multi_negocio.sql` y `0012_cerrar_lista_publica.sql`.
    Son seguros de repetir: no borran datos.
 2. Crea el primer administrador:
    - En **Authentication → Users → Add user** crea un usuario con su correo y la contraseña
@@ -102,8 +102,8 @@ solo ve y cambia los datos de su negocio (regla restrictiva por tabla, ademas de
   comanda es consecutivo por negocio (`private.contadores`).
 - `private.crear_negocio(nombre, codigo, admin_nombre, admin_correo, mesas)` da de alta un negocio con su
   configuracion, categorias base, mesas y administrador (el acceso con correo y PIN lo crea `admin-usuarios`).
-- `personal_del_negocio(codigo)`: lista el personal de UN negocio para la pantalla de entrada. Cuando la app
-  nueva use esta funcion, se cerrara la vista `public_staff` (hoy lista a todo el personal de la plataforma).
+- `personal_del_negocio(codigo)`: lista el personal de UN negocio para la pantalla de entrada. La vista
+  `public_staff`, que listaba a todo el personal sin sesion, se elimino en `0012_cerrar_lista_publica.sql`.
 - Respaldo previo a 0011 dentro de la base: esquema `respaldo_20261119` (sin acceso desde la API).
 
 ### Probar migraciones en local
