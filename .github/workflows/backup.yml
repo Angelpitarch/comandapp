@@ -1,12 +1,17 @@
 name: Backup DB
 
-# Respaldo diario de la base de datos, CIFRADO.
+# Respaldo diario de la base de datos, CIFRADO, y comprobado.
 # El repositorio es publico: los archivos de Actions los puede descargar cualquiera con cuenta de GitHub,
 # por eso el respaldo se cifra con una clave que solo tu conoces y, sin esa clave, el workflow se detiene
 # en vez de subir los datos en claro.
 #
+# Cada respaldo se COMPRUEBA antes de guardarlo: se restaura en una base temporal, se cuentan las filas de
+# cada tabla contra produccion y se verifica que el archivo cifrado se abre con la clave. El resultado sale
+# como avisos en el resumen de la ejecucion (sin datos ni contrasenas).
+#
 # Secretos necesarios (Settings -> Secrets and variables -> Actions):
-#   SUPABASE_DB_URL     cadena de conexion "Session pooler" de Supabase (boton Connect del proyecto).
+#   SUPABASE_DB_URL     cadena de conexion "Session pooler" de Supabase (boton Connect del proyecto), con la
+#                       contrasena de la base puesta en lugar de [YOUR-PASSWORD].
 #                       La conexion directa (db.<proyecto>.supabase.co) no funciona desde GitHub: solo tiene IPv6.
 #   BACKUP_PASSPHRASE   una clave larga que inventes y guardes en un lugar seguro. Sin ella no se puede abrir el respaldo.
 #
@@ -20,18 +25,48 @@ concurrency:
   group: backup-db
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   backup:
     runs-on: ubuntu-24.04
+    services:
+      # base temporal donde se prueba que el respaldo se puede restaurar (se borra al terminar)
+      prueba:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: prueba
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      PGB: /usr/lib/postgresql/17/bin
     steps:
+      - uses: actions/checkout@v5
+
       - name: Revisar secretos
         env:
           DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           CLAVE: ${{ secrets.BACKUP_PASSPHRASE }}
         run: |
+          mal() { echo "::error title=SUPABASE_DB_URL::$1"; exit 1; }
           if [ -z "$DB_URL" ]; then echo "::error::Falta el secreto SUPABASE_DB_URL (cadena Session pooler de Supabase)"; exit 1; fi
           if [ -z "$CLAVE" ]; then echo "::error::Falta el secreto BACKUP_PASSPHRASE: sin el, el respaldo quedaria legible para cualquiera"; exit 1; fi
+          # que la contrasena tampoco aparezca suelta en ningun registro
+          PASS=$(python3 -c 'import sys,urllib.parse as u; p=u.urlsplit(sys.argv[1]).password or ""; print(p); print(u.unquote(p))' "$DB_URL" 2>/dev/null || true)
+          while IFS= read -r p; do [ -n "$p" ] && echo "::add-mask::$p"; done <<< "$PASS"
+          case "$DB_URL" in
+            *YOUR-PASSWORD*|*YOUR_PASSWORD*|*'['*|*']'*) mal "Todavia dice [YOUR-PASSWORD]: cambialo por la contrasena de la base, sin corchetes.";;
+            \"*|\'*|*' '*) mal "La cadena tiene comillas o espacios: pegala sola, tal cual, sin comillas.";;
+            postgres://*|postgresql://*) ;;
+            *) mal "La cadena debe empezar con postgresql:// (copiala completa desde Connect -> Session pooler).";;
+          esac
+          arrobas=$(printf '%s' "$DB_URL" | tr -cd '@' | wc -c)
+          if [ "$arrobas" -gt 1 ]; then mal "La contrasena tiene el simbolo @. Escribelo como %40 dentro de la cadena, o cambia la contrasena de la base por una sin simbolos raros."; fi
           case "$DB_URL" in *pooler.supabase.com*) ;; *) echo "::warning::SUPABASE_DB_URL no parece ser la conexion Session pooler; si falla, usa esa";; esac
+          case "$DB_URL" in *:6543/*) echo "::warning::Ese es el puerto 6543 (Transaction pooler). Para respaldos se usa el Session pooler, puerto 5432.";; esac
+          echo "secretos presentes"
 
       - name: Instalar pg_dump 17 (misma version que Supabase)
         run: |
@@ -39,22 +74,78 @@ jobs:
           sudo apt-get install -y -qq postgresql-common > /dev/null
           sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y > /dev/null
           sudo apt-get install -y -qq postgresql-client-17 > /dev/null
-          /usr/lib/postgresql/17/bin/pg_dump --version
+          $PGB/pg_dump --version
+
+      - name: Probar la conexion
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if $PGB/psql "$DB_URL" -X -A -t -c "select 'conectado como ' || current_user" 2> err.txt; then exit 0; fi
+          e=$(sed -E 's#postgres(ql)?://[^ "]*#[conexion]#g' err.txt | tr '\n' ' ' | sed 's/%/%25/g' | cut -c1-600)
+          pista="Revisa la cadena SUPABASE_DB_URL."
+          case "$e" in
+            *"password authentication failed"*) pista="La contrasena de la base no es correcta. En Supabase: Project Settings -> Database -> Reset database password, y vuelve a poner la cadena con la nueva.";;
+            *"Tenant or user not found"*) pista="El usuario debe ser postgres.<id del proyecto> (como sale en Connect -> Session pooler).";;
+            *"could not translate host name"*) pista="El servidor de la cadena esta mal escrito. Copiala de nuevo desde Connect -> Session pooler.";;
+            *"invalid"*|*"URI"*) pista="La cadena esta mal formada; si la contrasena tiene simbolos (# / ? : %), cambiala por una solo con letras y numeros.";;
+            *"Network is unreachable"*|*"timeout"*|*"timed out"*) pista="No hay conexion: usa la cadena Session pooler (la conexion directa solo funciona con IPv6).";;
+          esac
+          echo "::error title=No se pudo conectar::$pista Detalle: $e"
+          exit 1
 
       - name: Respaldar
         env:
           DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
-          set -euo pipefail
-          PGD=/usr/lib/postgresql/17/bin/pg_dump
+          set -uo pipefail
+          falla() { e=$(sed -E 's#postgres(ql)?://[^ "]*#[conexion]#g' err.txt | tr '\n' ' ' | sed 's/%/%25/g' | cut -c1-700); echo "::error title=$1::$e"; exit 1; }
+          contar() { $PGB/psql "$DB_URL" -X -A -t -F' ' -f .github/respaldo/contar_filas.sql > "$1" 2> err.txt || falla "No se pudieron contar las filas"; }
           mkdir respaldo
+          # filas de cada tabla antes y despues de respaldar (el negocio puede estar vendiendo mientras tanto)
+          contar filas_antes.txt
           # tablas y funciones del sistema (public y private), en formato que se puede restaurar por partes
-          $PGD "$DB_URL" --schema=public --schema=private --no-owner --no-privileges -Fc -f respaldo/comandapp.dump
+          $PGB/pg_dump "$DB_URL" --schema=public --schema=private --no-owner --no-privileges -Fc -f respaldo/comandapp.dump 2> err.txt || falla "Fallo el respaldo de las tablas"
           # accesos (correos y claves cifradas de Supabase Auth) para poder recuperar los usuarios
-          $PGD "$DB_URL" --data-only --table=auth.users --table=auth.identities --no-owner -f respaldo/accesos.sql
+          $PGB/pg_dump "$DB_URL" --data-only --table=auth.users --table=auth.identities --no-owner -f respaldo/accesos.sql 2> err.txt || falla "Fallo el respaldo de los accesos"
+          contar filas_despues.txt
+          $PGB/psql "$DB_URL" -X -A -t -c "select count(*) from auth.users" > usuarios_produccion.txt 2> err.txt || falla "No se pudieron contar los usuarios"
           ls -la respaldo
 
-      - name: Cifrar
+      - name: Probar que se puede restaurar
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: prueba
+          LC_ALL: C
+        run: |
+          set +e
+          $PGB/createdb prueba || { echo "::error::No arranco la base de prueba"; exit 1; }
+          $PGB/psql -d prueba -q -X -v ON_ERROR_STOP=1 -f supabase/tests/local/00_supabase_simulado.sql || { echo "::error::No se pudo preparar la base de prueba"; exit 1; }
+          $PGB/pg_restore --no-owner --no-privileges -d prueba respaldo/comandapp.dump 2> restaurar.err
+          # avisos que no importan en la base de prueba (cosas que trae Supabase y aqui no existen)
+          grep '^pg_restore: error' restaurar.err | grep -v 'schema "public" already exists' > errores.txt
+          n=$(wc -l < errores.txt)
+          if [ "$n" -gt 0 ]; then
+            echo "::warning title=Restauracion con $n avisos::Revisar si alguno importa (se muestran los primeros)."
+            head -5 errores.txt | sed 's/%/%25/g' | cut -c1-400 | while IFS= read -r l; do echo "::warning::$l"; done
+          fi
+          $PGB/psql -d prueba -X -A -t -F' ' -f .github/respaldo/contar_filas.sql > filas_restauradas.txt || { echo "::error::No se pudieron contar las filas restauradas"; exit 1; }
+          # tabla antes despues restauradas: la copia debe estar entre los dos conteos de produccion
+          join <(sort filas_antes.txt) <(sort filas_despues.txt) > prod.txt
+          join -a1 -e 0 -o 0,1.2,1.3,2.2 prod.txt <(sort filas_restauradas.txt) > comparacion.txt
+          malas=$(awk '{lo=($2<$3)?$2:$3; hi=($2>$3)?$2:$3; if ($4<lo || $4>hi) printf "%s: produccion %s, copia %s; ", $1, $3, $4}' comparacion.txt | cut -c1-600)
+          tablas=$(wc -l < filas_despues.txt)
+          total=$(awk '{s+=$2} END {print s+0}' filas_despues.txt)
+          if [ "$tablas" -lt 5 ] || [ -n "$malas" ]; then
+            echo "::error title=La restauracion no coincide::Tablas en produccion: $tablas. $malas"
+            exit 1
+          fi
+          usuarios=$(awk '/^COPY auth.users /{f=1;next} /^\\\.$/{f=0} f' respaldo/accesos.sql | wc -l)
+          esperados=$(tr -d ' ' < usuarios_produccion.txt)
+          if [ "$usuarios" != "$esperados" ]; then echo "::error title=Accesos incompletos::El respaldo tiene $usuarios accesos y produccion $esperados"; exit 1; fi
+          echo "::notice title=Restauracion comprobada::$tablas tablas y $total filas restauradas, iguales a produccion. Accesos de usuarios: $usuarios."
+
+      - name: Cifrar y comprobar la clave
         env:
           CLAVE: ${{ secrets.BACKUP_PASSPHRASE }}
         run: |
@@ -62,8 +153,12 @@ jobs:
           tar -czf respaldo.tar.gz respaldo
           printf '%s' "$CLAVE" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
             --symmetric --cipher-algo AES256 -o respaldo.tar.gz.gpg respaldo.tar.gz
-          rm -rf respaldo respaldo.tar.gz
-          ls -la respaldo.tar.gz.gpg
+          # se abre con la clave y trae los dos archivos
+          contenido=$(printf '%s' "$CLAVE" | gpg --batch --quiet --pinentry-mode loopback --passphrase-fd 0 -d respaldo.tar.gz.gpg | tar -tz | sort | tr '\n' ' ')
+          case "$contenido" in *respaldo/accesos.sql*respaldo/comandapp.dump*) ;; *) echo "::error::El archivo cifrado no se pudo abrir con la clave"; exit 1;; esac
+          tam=$(du -h respaldo.tar.gz.gpg | cut -f1)
+          rm -rf respaldo respaldo.tar.gz filas_*.txt prod.txt comparacion.txt usuarios_produccion.txt
+          echo "::notice title=Respaldo cifrado::$tam, se abre con tu clave BACKUP_PASSPHRASE."
 
       - name: Guardar respaldo cifrado
         uses: actions/upload-artifact@v4
